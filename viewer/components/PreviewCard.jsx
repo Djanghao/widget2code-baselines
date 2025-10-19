@@ -270,6 +270,11 @@ function WidgetPreview({ pngUrl, dimensions, onLoad, maxHeight = 400, padding = 
   const imgRef = useRef(null);
 
   const [imgBox, setImgBox] = useState(null);
+  const [imageLoaded, setImageLoaded] = useState(false);
+
+  useEffect(() => {
+    setImageLoaded(false);
+  }, [pngUrl]);
 
   useEffect(() => {
     function updateBox() {
@@ -300,6 +305,7 @@ function WidgetPreview({ pngUrl, dimensions, onLoad, maxHeight = 400, padding = 
 
   const handleLoad = (e) => {
     onLoad && onLoad(e);
+    setImageLoaded(true);
     // Ensure we measure after image has its layout
     requestAnimationFrame(() => {
       if (!containerRef.current || !imgRef.current) return;
@@ -316,17 +322,28 @@ function WidgetPreview({ pngUrl, dimensions, onLoad, maxHeight = 400, padding = 
 
   return (
     <div ref={containerRef} style={{ position: 'relative', display: 'inline-block', padding }}>
+      {!imageLoaded && (
+        <div style={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          zIndex: 1
+        }}>
+          <Spin />
+        </div>
+      )}
       <img
         ref={imgRef}
         src={pngUrl}
         alt="widget"
         onLoad={handleLoad}
         style={displaySize
-          ? { display: 'block', width: displaySize.width, height: displaySize.height }
-          : { display: 'block', maxWidth: '100%', maxHeight: maxHeight }
+          ? { display: 'block', width: displaySize.width, height: displaySize.height, opacity: imageLoaded ? 1 : 0, transition: 'opacity 0.2s' }
+          : { display: 'block', maxWidth: '100%', maxHeight: maxHeight, opacity: imageLoaded ? 1 : 0, transition: 'opacity 0.2s' }
         }
       />
-      {dimensions && imgBox && (
+      {imageLoaded && dimensions && imgBox && (
         <>
           {/* Horizontal measurement line below the image, aligned to PNG edges */}
           <div

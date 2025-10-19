@@ -23,6 +23,9 @@ const nextConfig = {
     "rc-upload",
     "rc-segmented",
   ],
+  compiler: {
+    removeConsole: false,
+  },
 };
 
 module.exports = nextConfig;
