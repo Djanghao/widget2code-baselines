@@ -117,3 +117,24 @@ source venv/bin/activate
 python scripts/batch_infer.py --images-dir /shared/zhixiang_team/widget_research/images/images-test-1000 \
   --experiment gemini-2.5-pro-test-1000-html-no-size-minimal \
   --threads 1 --model gemini-2.5-pro --include "html-no-size/1-minimal.md"
+
+
+# Run 1: cal-size-cal-aspect-ratio (15 failures)
+python scripts/rerun_null_content.py --run-dir
+results/20251017-172031-gemini-2.5-pro-test-1000-html-no-size-m
+inimal-cal-size-cal-aspect-ratio --threads 1
+
+# Run 2: cal-size (17 failures)
+python scripts/rerun_null_content.py --run-dir results/20251017
+-181502-gemini-2.5-pro-test-1000-html-no-size-minimal-cal-size
+--threads 1
+
+# Run 3: cal-aspect-ratio (18 failures)
+python scripts/rerun_null_content.py --run-dir
+results/20251017-190903-gemini-2.5-pro-test-1000-html-no-size-m
+inimal-cal-aspect-ratio --threads 1
+
+# Run 4: minimal (15 failures)
+python scripts/rerun_null_content.py --run-dir results/20251017
+-200037-gemini-2.5-pro-test-1000-html-no-size-minimal --threads
+  1

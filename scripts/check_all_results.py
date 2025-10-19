@@ -14,13 +14,13 @@ def get_result_dirs(results_dir: Path) -> List[Path]:
 
 def check_single_run(run_dir: Path) -> dict:
     result = subprocess.run(
-        [sys.executable, "scripts/check_results_v2.py", str(run_dir)],
+        [sys.executable, "scripts/check_results.py", str(run_dir)],
         capture_output=True,
         text=True
     )
 
-    lines = result.stdout.strip().split('\n')
-    stats = {}
+    lines = result.stdout.strip().split('\n') if result.stdout else []
+    stats = {'total': 0, 'success': 0, 'missing': 0, 'error': 0, 'invalid': 0}
 
     for line in lines:
         if line.startswith('Total tasks:'):
