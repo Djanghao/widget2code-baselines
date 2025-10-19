@@ -320,7 +320,7 @@ export default function Home() {
           </div>
         )}
         <div style={{ flex: 1 }} />
-        <div style={{ minWidth: isMobile ? 120 : 200, maxWidth: isMobile ? "50%" : 300 }}>
+        <div style={{ width: isMobile ? 'min(85vw, 480px)' : 'clamp(480px, 50vw, 1000px)' }}>
           <RunPicker
             runs={runs}
             value={run}

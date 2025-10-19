@@ -394,3 +394,26 @@ body {
     font-size: 15px;
   }
 }
+
+/* RunPicker: keep tags visible, wrap name in dropdown */
+.run-option { display: flex; align-items: center; gap: 8px; min-width: 0; width: 100%; }
+.run-option .run-name { min-width: 0; flex: 1 1 auto; }
+.run-option .run-tags { display: inline-flex; gap: 4px; flex: 0 0 auto; }
+
+/* In dropdown list: allow long run names to wrap fully */
+.ant-select-dropdown .ant-select-item-option-content { white-space: normal; overflow: visible; }
+.ant-select-dropdown .run-option { flex-wrap: nowrap; align-items: center; }
+/* In dropdown, show up to 2 lines for name, then ellipsis */
+.ant-select-dropdown .run-option .run-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* In the closed selector: keep one line; ellipsis name, always show tags */
+.ant-select-single .ant-select-selector .ant-select-selection-item .run-option { display: flex; align-items: center; min-width: 0; }
+.ant-select-single .ant-select-selector .ant-select-selection-item .run-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ant-select-single .ant-select-selector .ant-select-selection-item .run-tags { flex: 0 0 auto; margin-left: 6px; }
