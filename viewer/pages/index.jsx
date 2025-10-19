@@ -152,12 +152,28 @@ export default function Home() {
     setCheckError(null);
     setCheckData(null);
     try {
-      const response = await fetch(`/api/check-run?run=${encodeURIComponent(run)}`);
-      const data = await response.json();
-      if (response.ok) {
-        setCheckData(data);
+      // Fetch overall check results and PNG counts in parallel
+      const [resRun, resPng] = await Promise.all([
+        fetch(`/api/check-run?run=${encodeURIComponent(run)}`),
+        fetch(`/api/check-run-pngs?run=${encodeURIComponent(run)}`)
+      ]);
+
+      const [dataRun, dataPng] = await Promise.all([resRun.json(), resPng.json()]);
+
+      if (resRun.ok) {
+        // Merge PNG stats onto the check results payload
+        const merged = {
+          ...dataRun,
+          withPng: typeof dataPng.withPng === 'number' ? dataPng.withPng : 0,
+          pngTotal: typeof dataPng.total === 'number' ? dataPng.total : dataRun?.total || 0,
+          pngMissing: typeof dataPng.missingCount === 'number' ? dataPng.missingCount : undefined
+        };
+        setCheckData(merged);
+        if (!resPng.ok) {
+          console.warn('PNG stats request failed:', dataPng?.error || dataPng);
+        }
       } else {
-        setCheckError(data.error || 'Failed to check run');
+        setCheckError(dataRun.error || 'Failed to check run');
       }
     } catch (err) {
       console.error('Check run failed:', err);

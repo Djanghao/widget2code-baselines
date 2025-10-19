@@ -9,15 +9,19 @@ export default function CheckRunModal({ open, onClose, run, data, loading, error
   }
 
   const total = data?.total || 0;
-  const success = data?.success || 0;
+  // Success now counts only items with PNGs
+  const pngRendered = data?.withPng || 0;
+  const success = typeof data?.success_png === 'number' ? data.success_png : pngRendered;
   const requestFailed = data?.request_failed || 0;
   const responseNone = data?.response_none || 0;
   const contentEmpty = data?.content_empty || 0;
   const missingOutput = data?.missing_output || 0;
+  const invalidHtml = data?.invalid_html || 0;
   const invalidMeta = data?.invalid_meta || 0;
 
+  const pngTotal = data?.pngTotal || total;
   const successRate = total > 0 ? (success / total) * 100 : 0;
-  const failureCount = requestFailed + responseNone + contentEmpty + missingOutput + invalidMeta;
+  const failureCount = requestFailed + responseNone + contentEmpty + missingOutput + invalidHtml + invalidMeta;
 
   const errorCategories = [
     {
@@ -47,6 +51,13 @@ export default function CheckRunModal({ open, onClose, run, data, loading, error
       count: missingOutput,
       description: 'Output file (.html/.jsx) not found',
       color: '#ffc53d'
+    },
+    {
+      key: 'invalid_html',
+      label: 'Invalid HTML',
+      count: invalidHtml,
+      description: 'HTML is invalid or incomplete',
+      color: '#9254de'
     },
     {
       key: 'invalid_meta',
@@ -111,39 +122,45 @@ export default function CheckRunModal({ open, onClose, run, data, loading, error
         />
       ) : (
         <div>
-          <Row gutter={16} style={{ marginBottom: 24 }}>
-            <Col span={6}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'stretch', marginBottom: 24 }}>
+            <div style={{ flex: '0 0 auto' }}>
               <Statistic
                 title="Total Tasks"
                 value={total}
                 valueStyle={{ color: '#1677ff' }}
               />
-            </Col>
-            <Col span={6}>
+            </div>
+            <div style={{ flex: '0 0 auto' }}>
               <Statistic
                 title="Success"
                 value={success}
                 valueStyle={{ color: '#52c41a' }}
                 prefix={<CheckCircleOutlined />}
               />
-            </Col>
-            <Col span={6}>
+            </div>
+            <div style={{ flex: '0 0 auto' }}>
               <Statistic
-                title="Failures"
-                value={failureCount}
-                valueStyle={{ color: '#ff4d4f' }}
-                prefix={<CloseCircleOutlined />}
+                title="PNG Rendered"
+                value={pngRendered}
+                suffix={pngTotal > 0 ? ` / ${pngTotal}` : undefined}
+                valueStyle={{ color: '#13c2c2' }}
               />
-            </Col>
-            <Col span={6}>
+            </div>
+            <div style={{ flex: '0 0 auto' }}>
               <Statistic
-                title="Success Rate"
-                value={successRate.toFixed(1)}
-                suffix="%"
-                valueStyle={{ color: successRate >= 90 ? '#52c41a' : successRate >= 70 ? '#faad14' : '#ff4d4f' }}
+                title="Content Empty"
+                value={contentEmpty}
+                valueStyle={{ color: '#faad14' }}
               />
-            </Col>
-          </Row>
+            </div>
+            <div style={{ flex: '0 0 auto' }}>
+              <Statistic
+                title="Invalid HTML"
+                value={invalidHtml}
+                valueStyle={{ color: '#9254de' }}
+              />
+            </div>
+          </div>
 
           <div style={{ marginBottom: 24 }}>
             <Text strong style={{ marginBottom: 8, display: 'block' }}>Success Rate</Text>

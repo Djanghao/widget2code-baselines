@@ -46,6 +46,9 @@ export default async function handler(req, res) {
 
     try {
       const result = JSON.parse(stdout);
+
+      // check_results.py now handles PNG validation
+      // Result already contains correct success count and invalid_html categorization
       res.status(200).json(result);
     } catch (parseErr) {
       console.error('Failed to parse check_results output:', parseErr);

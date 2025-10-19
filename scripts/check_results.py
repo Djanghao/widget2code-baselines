@@ -7,6 +7,11 @@ from collections import defaultdict
 from typing import Dict, List, Tuple
 
 
+def get_png_path(output_path: str) -> str:
+    p = Path(output_path)
+    return str(p.with_suffix('.png'))
+
+
 def check_output_file_exists(meta_path: Path) -> Tuple[bool, str]:
     base_name = meta_path.stem.replace(".meta", "")
     parent = meta_path.parent
@@ -48,14 +53,24 @@ def analyze_meta_file(meta_path: Path) -> Tuple[str, Dict]:
 
         # Old format with valid content
         if has_output:
-            return "success", {"path": str(meta_path), "output_path": output_path, "content_length": len(content)}
+            png_path = get_png_path(output_path)
+            has_png = Path(png_path).exists()
+            if has_png:
+                return "success", {"path": str(meta_path), "output_path": output_path, "content_length": len(content)}
+            else:
+                return "invalid_html", {"path": str(meta_path), "output_path": output_path, "reason": "missing_png"}
         else:
-            # Content exists but output file missing (shouldn't happen but handle it)
-            return "missing_output", {"path": str(meta_path), "content_length": len(content)}
+            # Content exists but output file missing => treat as invalid HTML
+            return "invalid_html", {"path": str(meta_path), "content_length": len(content), "reason": "missing_output"}
 
     # New format (no response field, content extracted to file)
     if has_output:
-        return "success", {"path": str(meta_path), "output_path": output_path}
+        png_path = get_png_path(output_path)
+        has_png = Path(png_path).exists()
+        if has_png:
+            return "success", {"path": str(meta_path), "output_path": output_path}
+        else:
+            return "invalid_html", {"path": str(meta_path), "output_path": output_path, "reason": "missing_png"}
     else:
         return "missing_output", {"path": str(meta_path)}
 
@@ -92,6 +107,7 @@ def main(argv: List[str] = None) -> int:
     total = len(meta_files)
     success_count = len(stats["success"])
     missing_output_count = len(stats["missing_output"])
+    invalid_html_count = len(stats["invalid_html"])
     request_failed_count = len(stats["request_failed"])
     response_none_count = len(stats["response_none"])
     content_empty_count = len(stats["content_empty"])
@@ -101,10 +117,12 @@ def main(argv: List[str] = None) -> int:
         output = {
             "total": total,
             "success": success_count,
+            "success_png": success_count,
             "request_failed": request_failed_count,
             "response_none": response_none_count,
             "content_empty": content_empty_count,
             "missing_output": missing_output_count,
+            "invalid_html": invalid_html_count,
             "invalid_meta": invalid_meta_count,
             "stats": {k: v for k, v in stats.items()}
         }
@@ -115,16 +133,17 @@ def main(argv: List[str] = None) -> int:
     print(f"Results Analysis for: {results_dir}")
     print(f"{'='*60}")
     print(f"Total tasks: {total}")
-    print(f"✓ Success (has output file): {success_count} ({success_count/total*100:.1f}%)")
+    print(f"✓ Success (has PNG): {success_count} ({success_count/total*100:.1f}%)")
     print(f"✗ Request failed (exception): {request_failed_count} ({request_failed_count/total*100:.1f}%)")
     print(f"✗ Response is None: {response_none_count} ({response_none_count/total*100:.1f}%)")
     print(f"✗ Content empty/None: {content_empty_count} ({content_empty_count/total*100:.1f}%)")
+    print(f"✗ Invalid HTML (no PNG): {invalid_html_count} ({invalid_html_count/total*100:.1f}%)")
     print(f"✗ Missing output file: {missing_output_count} ({missing_output_count/total*100:.1f}%)")
     print(f"✗ Invalid meta.json: {invalid_meta_count} ({invalid_meta_count/total*100:.1f}%)")
     print(f"{'='*60}\n")
 
     if args.verbose:
-        for status in ["request_failed", "response_none", "content_empty", "missing_output", "invalid_meta"]:
+        for status in ["request_failed", "response_none", "content_empty", "invalid_html", "missing_output", "invalid_meta"]:
             items = stats[status]
             if items:
                 print(f"\n{status.upper().replace('_', ' ')} ({len(items)} items):")

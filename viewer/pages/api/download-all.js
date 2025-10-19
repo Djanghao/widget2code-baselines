@@ -2,7 +2,7 @@ import path from 'path';
 import fs from 'fs';
 import archiver from 'archiver';
 import { RESULTS_ROOT } from '../../lib/serverPaths';
-import { getPngPath } from '../../renderer/index.js';
+// Note: We no longer require PNG completeness for download
 
 function safe(s) {
   return s && typeof s === 'string' && !s.includes('..') && !s.includes('\\') && s.length < 512;
@@ -42,40 +42,8 @@ export default async function handler(req, res) {
     return;
   }
 
-  const imageDirs = fs.readdirSync(runDir, { withFileTypes: true })
-    .filter(d => d.isDirectory())
-    .map(d => ({ name: d.name, path: path.join(runDir, d.name) }));
-
-  let totalFiles = 0;
-  let totalWithPng = 0;
-
-  for (const imageDir of imageDirs) {
-    const targets = walkFiles(imageDir.path, ['.html', '.jsx', '.js']);
-
-    for (const f of targets) {
-      const png = getPngPath(f);
-      if (fs.existsSync(png)) {
-        totalWithPng++;
-      }
-    }
-
-    totalFiles += targets.length;
-  }
-
-  const complete = totalFiles > 0 ? totalFiles === totalWithPng : false;
-  const missingCount = totalFiles - totalWithPng;
-
-  if (!complete) {
-    console.log(`[download-all] Rejected: ${run} is incomplete (${missingCount}/${totalFiles} PNGs missing)`);
-    res.status(400).json({
-      error: 'Incomplete run',
-      message: `Cannot download: ${missingCount} of ${totalFiles} PNGs are not rendered yet`,
-      complete: false,
-      total: totalFiles,
-      missing: missingCount
-    });
-    return;
-  }
+  // Previously, we required all PNGs to be rendered before allowing download.
+  // Now, always allow downloading the entire run folder, even if incomplete.
 
   try {
     const archive = archiver('zip', {
