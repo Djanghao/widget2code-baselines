@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Layout, Typography, Input, Empty, Spin, Flex, Divider, Modal, Button, message } from "antd";
-import { MenuFoldOutlined, MenuUnfoldOutlined, EyeOutlined, ExperimentOutlined, ThunderboltOutlined, DownloadOutlined, CheckCircleOutlined } from "@ant-design/icons";
+import { Layout, Typography, Input, Empty, Spin, Flex, Divider, Modal, Button, message, Progress } from "antd";
+import { MenuFoldOutlined, MenuUnfoldOutlined, EyeOutlined, ExperimentOutlined, ThunderboltOutlined, DownloadOutlined, CheckCircleOutlined, StopOutlined } from "@ant-design/icons";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import RunPicker from "../components/RunPicker";
@@ -28,6 +28,7 @@ export default function Home() {
   const [checkData, setCheckData] = useState(null);
   const [checkLoading, setCheckLoading] = useState(false);
   const [checkError, setCheckError] = useState(null);
+  const [renderProgress, setRenderProgress] = useState({ total: 0, completed: 0, isRendering: false });
 
   useEffect(() => {
     fetch("/api/runs").then((r) => r.json()).then((d) => {
@@ -52,6 +53,29 @@ export default function Home() {
         setSelected(list.length ? list[0].id : null);
       })
       .finally(() => setLoadingImages(false));
+
+    const checkIfRendering = async () => {
+      try {
+        const statusResponse = await fetch(`/api/render-status?run=${encodeURIComponent(run)}`);
+        const statusData = await statusResponse.json();
+
+        if (statusData.isRendering) {
+          const pngResponse = await fetch(`/api/check-run-pngs?run=${encodeURIComponent(run)}`);
+          const pngData = await pngResponse.json();
+
+          const completed = pngData.total - (pngData.missingCount || 0);
+          setRenderProgress({
+            total: pngData.total,
+            completed: completed,
+            isRendering: true
+          });
+        }
+      } catch (err) {
+        console.error('Check rendering status failed:', err);
+      }
+    };
+
+    checkIfRendering();
   }, [run]);
 
   useEffect(() => {
@@ -98,23 +122,56 @@ export default function Home() {
     return `/api/file?run=${encodeURIComponent(run)}&file=${encodeURIComponent(selectedItem.source)}`;
   }, [run, selectedItem]);
 
+  useEffect(() => {
+    if (!run || !renderProgress.isRendering) return;
+
+    const checkProgress = async () => {
+      try {
+        const response = await fetch(`/api/check-run-pngs?run=${encodeURIComponent(run)}`);
+        const data = await response.json();
+
+        const completed = data.total - (data.missingCount || 0);
+        setRenderProgress(prev => ({
+          ...prev,
+          total: data.total,
+          completed: completed
+        }));
+
+        if (data.complete) {
+          setRenderProgress(prev => ({ ...prev, isRendering: false }));
+          message.success(`All PNGs rendered! (${data.total} files)`);
+        }
+      } catch (err) {
+        console.error('Progress check failed:', err);
+      }
+    };
+
+    checkProgress();
+    const interval = setInterval(checkProgress, 2000);
+
+    return () => clearInterval(interval);
+  }, [run, renderProgress.isRendering]);
+
   const handleRenderAll = async () => {
     if (!run) {
       message.warning('No run selected');
       return;
     }
-    setRenderingAll(true);
+
     try {
       const checkResponse = await fetch(`/api/check-run-pngs?run=${encodeURIComponent(run)}`);
       const checkData = await checkResponse.json();
 
       if (checkData.complete) {
         message.success(`All PNGs already rendered (${checkData.total} files)`);
-        setRenderingAll(false);
         return;
       }
 
-      message.info(`Rendering ${checkData.missingCount} missing PNGs...`);
+      setRenderProgress({
+        total: checkData.total,
+        completed: checkData.total - checkData.missingCount,
+        isRendering: true
+      });
 
       const response = await fetch('/api/batch-render-run', {
         method: 'POST',
@@ -122,16 +179,37 @@ export default function Home() {
         body: JSON.stringify({ run })
       });
       const data = await response.json();
-      if (response.ok) {
-        message.success(data.message || 'Batch rendering started');
-      } else {
+      if (!response.ok) {
         message.error(data.error || 'Failed to start batch rendering');
+        setRenderProgress(prev => ({ ...prev, isRendering: false }));
       }
     } catch (err) {
       console.error('Batch render all failed:', err);
       message.error('Failed to start batch rendering');
-    } finally {
-      setRenderingAll(false);
+      setRenderProgress(prev => ({ ...prev, isRendering: false }));
+    }
+  };
+
+  const handleStopRender = async () => {
+    if (!run) return;
+
+    try {
+      const response = await fetch('/api/stop-render', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ run })
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        message.success('Render stopped');
+        setRenderProgress(prev => ({ ...prev, isRendering: false }));
+      } else {
+        message.warning('No active render to stop');
+      }
+    } catch (err) {
+      console.error('Stop render failed:', err);
+      message.error('Failed to stop render');
     }
   };
 
@@ -222,31 +300,6 @@ export default function Home() {
           </Link>
         </div>
         <div style={{ flex: 1 }} />
-        <Button
-          icon={<ThunderboltOutlined />}
-          onClick={handleRenderAll}
-          loading={renderingAll}
-          disabled={!run}
-          style={{ marginRight: 8 }}
-        >
-          Render All
-        </Button>
-        <Button
-          icon={<DownloadOutlined />}
-          onClick={handleDownloadAll}
-          disabled={!run}
-          style={{ marginRight: 8 }}
-        >
-          Download All
-        </Button>
-        <Button
-          icon={<CheckCircleOutlined />}
-          onClick={handleCheckRun}
-          disabled={!run}
-          style={{ marginRight: 12 }}
-        >
-          Check Run
-        </Button>
         <RunPicker
           runs={runs}
           value={run}
@@ -397,17 +450,99 @@ export default function Home() {
             </div>
           ) : (
             <div>
-              <Flex align="center" gap={12} wrap="wrap" style={{ marginBottom: 8 }}>
-                <Title level={5} style={{ margin: 0 }}>{selected}</Title>
+              <Flex align="center" gap={12} wrap="nowrap" style={{ marginBottom: 16 }}>
+                <Title level={5} style={{ margin: 0, flexShrink: 0 }}>{selected}</Title>
                 {selectedSource ? (
                   <img
                     alt="source"
                     src={selectedSource}
-                    style={{ height: 64, borderRadius: 8, border: "1px solid #eef0f3", background: "#fff", cursor: "pointer" }}
+                    style={{ height: 64, borderRadius: 8, border: "1px solid #eef0f3", background: "#fff", cursor: "pointer", flexShrink: 0 }}
                     onClick={() => setSourceModalOpen(true)}
                   />
                 ) : null}
+
+                <div style={{
+                  background: '#f5f5f5',
+                  padding: '16px 20px',
+                  borderRadius: 12,
+                  border: '1px solid #e8e8e8',
+                  display: 'flex',
+                  alignItems: 'center',
+                  marginLeft: 'auto',
+                  minHeight: 88
+                }}>
+                  <Flex gap={12} align="center" wrap="nowrap" style={{ flexDirection: 'row-reverse' }}>
+                    <Flex gap={12} align="center" wrap="nowrap">
+                      <Button
+                        type="primary"
+                        icon={<ThunderboltOutlined />}
+                        onClick={handleRenderAll}
+                        disabled={!run || renderProgress.isRendering}
+                        size="large"
+                      >
+                        Render All
+                      </Button>
+
+                      <Button
+                        icon={<DownloadOutlined />}
+                        onClick={handleDownloadAll}
+                        disabled={!run}
+                        size="large"
+                      >
+                        Download All
+                      </Button>
+
+                      <Button
+                        icon={<CheckCircleOutlined />}
+                        onClick={handleCheckRun}
+                        disabled={!run}
+                        size="large"
+                      >
+                        Check Run
+                      </Button>
+                    </Flex>
+
+                    <div style={{
+                      width: renderProgress.isRendering ? 400 : 0,
+                      opacity: renderProgress.isRendering ? 1 : 0,
+                      overflow: 'hidden',
+                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                      marginRight: renderProgress.isRendering ? 12 : 0
+                    }}>
+                      <div style={{ width: 400 }}>
+                        <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Text strong style={{ color: '#1677ff', whiteSpace: 'nowrap' }}>
+                            <ThunderboltOutlined style={{ marginRight: 8 }} />
+                            Rendering PNGs...
+                          </Text>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <Text type="secondary" style={{ whiteSpace: 'nowrap' }}>
+                              {renderProgress.completed} / {renderProgress.total}
+                            </Text>
+                            <Button
+                              danger
+                              size="small"
+                              icon={<StopOutlined />}
+                              onClick={handleStopRender}
+                            >
+                              Stop
+                            </Button>
+                          </div>
+                        </div>
+                        <Progress
+                          percent={renderProgress.total > 0 ? Math.round((renderProgress.completed / renderProgress.total) * 100) : 0}
+                          status="active"
+                          strokeColor={{
+                            '0%': '#108ee9',
+                            '100%': '#87d068',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </Flex>
+                </div>
               </Flex>
+
               <Divider style={{ margin: "8px 0 12px" }} />
               {Object.keys(results).length === 0 ? (
                 <Empty description="No results" />
