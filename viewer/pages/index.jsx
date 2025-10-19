@@ -29,6 +29,22 @@ export default function Home() {
   const [checkLoading, setCheckLoading] = useState(false);
   const [checkError, setCheckError] = useState(null);
   const [renderProgress, setRenderProgress] = useState({ total: 0, completed: 0, isRendering: false });
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Detect screen size and auto-collapse sidebar on mobile
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (mobile && !siderCollapsed) {
+        setSiderCollapsed(true);
+      }
+    };
+
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   useEffect(() => {
     fetch("/api/runs").then((r) => r.json()).then((d) => {
@@ -267,8 +283,8 @@ export default function Home() {
       <header style={{
         display: "flex",
         alignItems: "center",
-        gap: 12,
-        padding: "0 24px",
+        gap: isMobile ? 8 : 12,
+        padding: isMobile ? "0 12px" : "0 24px",
         height: 64,
         borderBottom: "1px solid #112a45",
         background: "#001529",
@@ -280,42 +296,65 @@ export default function Home() {
           icon={siderCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
           onClick={() => setSiderCollapsed((v) => !v)}
           aria-label={siderCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          style={{ color: "#fff" }}
+          style={{ color: "#fff", flexShrink: 0 }}
         />
-        <Title level={4} style={{ color: "#fff", margin: 0, fontWeight: 700 }}>Widget2Code</Title>
-        <div style={{ display: "flex", gap: 8, marginLeft: 16 }}>
-          <Link href="/" prefetch passHref legacyBehavior>
-            <a style={{ textDecoration: 'none' }}>
-              <Button type="primary" icon={<EyeOutlined />} style={{ background: "#1677ff", borderColor: "#1677ff" }}>
-                Viewer
-              </Button>
-            </a>
-          </Link>
-          <Link href="/playground" prefetch passHref legacyBehavior>
-            <a style={{ textDecoration: 'none' }}>
-              <Button icon={<ExperimentOutlined />} style={{ background: "#434343", borderColor: "#434343", color: "#fff" }}>
-                Playground
-              </Button>
-            </a>
-          </Link>
-        </div>
+        <Title level={isMobile ? 5 : 4} style={{ color: "#fff", margin: 0, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {isMobile ? "W2C" : "Widget2Code"}
+        </Title>
+        {!isMobile && (
+          <div style={{ display: "flex", gap: 8, marginLeft: 16 }}>
+            <Link href="/" prefetch passHref legacyBehavior>
+              <a style={{ textDecoration: 'none' }}>
+                <Button type="primary" icon={<EyeOutlined />} style={{ background: "#1677ff", borderColor: "#1677ff" }}>
+                  Viewer
+                </Button>
+              </a>
+            </Link>
+            <Link href="/playground" prefetch passHref legacyBehavior>
+              <a style={{ textDecoration: 'none' }}>
+                <Button icon={<ExperimentOutlined />} style={{ background: "#434343", borderColor: "#434343", color: "#fff" }}>
+                  Playground
+                </Button>
+              </a>
+            </Link>
+          </div>
+        )}
         <div style={{ flex: 1 }} />
-        <RunPicker
-          runs={runs}
-          value={run}
-          onChange={(v) => {
-            setLoadingImages(true);
-            setImages([]);
-            setSelected(null);
-            setRun(v);
-            router.push(`/?run=${encodeURIComponent(v)}`, undefined, { shallow: true });
-          }}
-        />
+        <div style={{ minWidth: isMobile ? 120 : 200, maxWidth: isMobile ? "50%" : 300 }}>
+          <RunPicker
+            runs={runs}
+            value={run}
+            onChange={(v) => {
+              setLoadingImages(true);
+              setImages([]);
+              setSelected(null);
+              setRun(v);
+              router.push(`/?run=${encodeURIComponent(v)}`, undefined, { shallow: true });
+            }}
+          />
+        </div>
       </header>
 
-      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+      <div style={{ display: "flex", flex: 1, overflow: "hidden", position: "relative" }}>
+        {/* Mobile overlay to close sidebar */}
+        {isMobile && !siderCollapsed && (
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: "rgba(0, 0, 0, 0.5)",
+              zIndex: 999,
+              cursor: "pointer"
+            }}
+            onClick={() => setSiderCollapsed(true)}
+          />
+        )}
+
         <Sider
-          width={320}
+          width={isMobile ? "100%" : 320}
           collapsedWidth={0}
           collapsible
           collapsed={siderCollapsed}
@@ -324,7 +363,11 @@ export default function Home() {
           style={{
             background: "#fff",
             borderRight: "1px solid #e8e8e8",
-            boxShadow: "2px 0 8px rgba(0,0,0,0.05)"
+            boxShadow: "2px 0 8px rgba(0,0,0,0.05)",
+            position: isMobile ? "absolute" : "relative",
+            zIndex: isMobile ? 1000 : "auto",
+            height: "100%",
+            maxWidth: isMobile ? "85vw" : "none"
           }}
         >
           <div style={{
@@ -450,95 +493,137 @@ export default function Home() {
             </div>
           ) : (
             <div>
-              <Flex align="center" gap={12} wrap="nowrap" style={{ marginBottom: 16 }}>
+              <Flex align="center" gap={12} wrap={isMobile ? "wrap" : "nowrap"} style={{ marginBottom: 16 }}>
                 <Title level={5} style={{ margin: 0, flexShrink: 0 }}>{selected}</Title>
                 {selectedSource ? (
                   <img
                     alt="source"
                     src={selectedSource}
-                    style={{ height: 64, borderRadius: 8, border: "1px solid #eef0f3", background: "#fff", cursor: "pointer", flexShrink: 0 }}
+                    style={{ height: isMobile ? 48 : 64, borderRadius: 8, border: "1px solid #eef0f3", background: "#fff", cursor: "pointer", flexShrink: 0 }}
                     onClick={() => setSourceModalOpen(true)}
                   />
                 ) : null}
 
                 <div style={{
                   background: '#f5f5f5',
-                  padding: '16px 20px',
+                  padding: isMobile ? '12px' : '16px 20px',
                   borderRadius: 12,
                   border: '1px solid #e8e8e8',
                   display: 'flex',
                   alignItems: 'center',
-                  marginLeft: 'auto',
-                  minHeight: 88
+                  marginLeft: isMobile ? 0 : 'auto',
+                  minHeight: isMobile ? 'auto' : 88,
+                  width: isMobile ? '100%' : 'auto'
                 }}>
-                  <Flex gap={12} align="center" wrap="nowrap" style={{ flexDirection: 'row-reverse' }}>
-                    <Flex gap={12} align="center" wrap="nowrap">
+                  <Flex gap={isMobile ? 8 : 12} align="center" wrap={isMobile ? "wrap" : "nowrap"} style={{ flexDirection: isMobile ? "column" : 'row-reverse', width: '100%' }}>
+                    <Flex gap={isMobile ? 8 : 12} align="center" wrap={isMobile ? "wrap" : "nowrap"} style={{ width: isMobile ? '100%' : 'auto' }}>
                       <Button
                         type="primary"
                         icon={<ThunderboltOutlined />}
                         onClick={handleRenderAll}
                         disabled={!run || renderProgress.isRendering}
-                        size="large"
+                        size={isMobile ? "middle" : "large"}
+                        style={{ flex: isMobile ? 1 : 'none' }}
                       >
-                        Render All
+                        {isMobile ? "Render" : "Render All"}
                       </Button>
 
                       <Button
                         icon={<DownloadOutlined />}
                         onClick={handleDownloadAll}
                         disabled={!run}
-                        size="large"
+                        size={isMobile ? "middle" : "large"}
+                        style={{ flex: isMobile ? 1 : 'none' }}
                       >
-                        Download All
+                        {isMobile ? "Download" : "Download All"}
                       </Button>
 
                       <Button
                         icon={<CheckCircleOutlined />}
                         onClick={handleCheckRun}
                         disabled={!run}
-                        size="large"
+                        size={isMobile ? "middle" : "large"}
+                        style={{ flex: isMobile ? 1 : 'none' }}
                       >
-                        Check Run
+                        {isMobile ? "Check" : "Check Run"}
                       </Button>
                     </Flex>
 
-                    <div style={{
-                      width: renderProgress.isRendering ? 400 : 0,
-                      opacity: renderProgress.isRendering ? 1 : 0,
-                      overflow: 'hidden',
-                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                      marginRight: renderProgress.isRendering ? 12 : 0
-                    }}>
-                      <div style={{ width: 400 }}>
-                        <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Text strong style={{ color: '#1677ff', whiteSpace: 'nowrap' }}>
-                            <ThunderboltOutlined style={{ marginRight: 8 }} />
-                            Rendering PNGs...
-                          </Text>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                            <Text type="secondary" style={{ whiteSpace: 'nowrap' }}>
-                              {renderProgress.completed} / {renderProgress.total}
+                    {isMobile ? (
+                      renderProgress.isRendering && (
+                        <div style={{
+                          width: '100%',
+                          marginTop: 12,
+                          animation: 'fadeIn 0.3s ease-out'
+                        }}>
+                          <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text strong style={{ color: '#1677ff', whiteSpace: 'nowrap' }}>
+                              <ThunderboltOutlined style={{ marginRight: 8 }} />
+                              Rendering PNGs...
                             </Text>
-                            <Button
-                              danger
-                              size="small"
-                              icon={<StopOutlined />}
-                              onClick={handleStopRender}
-                            >
-                              Stop
-                            </Button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                              <Text type="secondary" style={{ whiteSpace: 'nowrap' }}>
+                                {renderProgress.completed} / {renderProgress.total}
+                              </Text>
+                              <Button
+                                danger
+                                size="small"
+                                icon={<StopOutlined />}
+                                onClick={handleStopRender}
+                              >
+                                Stop
+                              </Button>
+                            </div>
                           </div>
+                          <Progress
+                            percent={renderProgress.total > 0 ? Math.round((renderProgress.completed / renderProgress.total) * 100) : 0}
+                            status="active"
+                            strokeColor={{
+                              '0%': '#108ee9',
+                              '100%': '#87d068',
+                            }}
+                          />
                         </div>
-                        <Progress
-                          percent={renderProgress.total > 0 ? Math.round((renderProgress.completed / renderProgress.total) * 100) : 0}
-                          status="active"
-                          strokeColor={{
-                            '0%': '#108ee9',
-                            '100%': '#87d068',
-                          }}
-                        />
+                      )
+                    ) : (
+                      <div style={{
+                        width: renderProgress.isRendering ? 400 : 0,
+                        opacity: renderProgress.isRendering ? 1 : 0,
+                        overflow: 'hidden',
+                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                        marginRight: renderProgress.isRendering ? 12 : 0
+                      }}>
+                        <div style={{ width: 400 }}>
+                          <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text strong style={{ color: '#1677ff', whiteSpace: 'nowrap' }}>
+                              <ThunderboltOutlined style={{ marginRight: 8 }} />
+                              Rendering PNGs...
+                            </Text>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                              <Text type="secondary" style={{ whiteSpace: 'nowrap' }}>
+                                {renderProgress.completed} / {renderProgress.total}
+                              </Text>
+                              <Button
+                                danger
+                                size="small"
+                                icon={<StopOutlined />}
+                                onClick={handleStopRender}
+                              >
+                                Stop
+                              </Button>
+                            </div>
+                          </div>
+                          <Progress
+                            percent={renderProgress.total > 0 ? Math.round((renderProgress.completed / renderProgress.total) * 100) : 0}
+                            status="active"
+                            strokeColor={{
+                              '0%': '#108ee9',
+                              '100%': '#87d068',
+                            }}
+                          />
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </Flex>
                 </div>
               </Flex>
