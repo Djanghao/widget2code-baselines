@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Layout, Typography, Input, Empty, Spin, Flex, Divider, Modal, Button, message, Progress } from "antd";
-import { MenuFoldOutlined, MenuUnfoldOutlined, EyeOutlined, ExperimentOutlined, ThunderboltOutlined, DownloadOutlined, CheckCircleOutlined, StopOutlined } from "@ant-design/icons";
+import { Layout, Typography, Input, Empty, Spin, Flex, Divider, Modal, Button, message } from "antd";
+import { MenuFoldOutlined, MenuUnfoldOutlined, EyeOutlined, ExperimentOutlined, DownloadOutlined, CheckCircleOutlined } from "@ant-design/icons";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import RunPicker from "../components/RunPicker";
@@ -23,12 +23,10 @@ export default function Home() {
   const [sourceModalOpen, setSourceModalOpen] = useState(false);
   const [siderCollapsed, setSiderCollapsed] = useState(false);
   const [renderStatus, setRenderStatus] = useState('idle');
-  const [renderingAll, setRenderingAll] = useState(false);
   const [checkModalOpen, setCheckModalOpen] = useState(false);
   const [checkData, setCheckData] = useState(null);
   const [checkLoading, setCheckLoading] = useState(false);
   const [checkError, setCheckError] = useState(null);
-  const [renderProgress, setRenderProgress] = useState({ total: 0, completed: 0, isRendering: false });
   const [isMobile, setIsMobile] = useState(false);
 
   // Detect screen size and auto-collapse sidebar on mobile
@@ -69,29 +67,6 @@ export default function Home() {
         setSelected(list.length ? list[0].id : null);
       })
       .finally(() => setLoadingImages(false));
-
-    const checkIfRendering = async () => {
-      try {
-        const statusResponse = await fetch(`/api/render-status?run=${encodeURIComponent(run)}`);
-        const statusData = await statusResponse.json();
-
-        if (statusData.isRendering) {
-          const pngResponse = await fetch(`/api/check-run-pngs?run=${encodeURIComponent(run)}`);
-          const pngData = await pngResponse.json();
-
-          const completed = pngData.total - (pngData.missingCount || 0);
-          setRenderProgress({
-            total: pngData.total,
-            completed: completed,
-            isRendering: true
-          });
-        }
-      } catch (err) {
-        console.error('Check rendering status failed:', err);
-      }
-    };
-
-    checkIfRendering();
   }, [run]);
 
   useEffect(() => {
@@ -138,97 +113,6 @@ export default function Home() {
     return `/api/file?run=${encodeURIComponent(run)}&file=${encodeURIComponent(selectedItem.source)}`;
   }, [run, selectedItem]);
 
-  useEffect(() => {
-    if (!run || !renderProgress.isRendering) return;
-
-    const checkProgress = async () => {
-      try {
-        const response = await fetch(`/api/check-run-pngs?run=${encodeURIComponent(run)}`);
-        const data = await response.json();
-
-        const completed = data.total - (data.missingCount || 0);
-        setRenderProgress(prev => ({
-          ...prev,
-          total: data.total,
-          completed: completed
-        }));
-
-        if (data.complete) {
-          setRenderProgress(prev => ({ ...prev, isRendering: false }));
-          message.success(`All PNGs rendered! (${data.total} files)`);
-        }
-      } catch (err) {
-        console.error('Progress check failed:', err);
-      }
-    };
-
-    checkProgress();
-    const interval = setInterval(checkProgress, 2000);
-
-    return () => clearInterval(interval);
-  }, [run, renderProgress.isRendering]);
-
-  const handleRenderAll = async () => {
-    if (!run) {
-      message.warning('No run selected');
-      return;
-    }
-
-    try {
-      const checkResponse = await fetch(`/api/check-run-pngs?run=${encodeURIComponent(run)}`);
-      const checkData = await checkResponse.json();
-
-      if (checkData.complete) {
-        message.success(`All PNGs already rendered (${checkData.total} files)`);
-        return;
-      }
-
-      setRenderProgress({
-        total: checkData.total,
-        completed: checkData.total - checkData.missingCount,
-        isRendering: true
-      });
-
-      const response = await fetch('/api/batch-render-run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ run })
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        message.error(data.error || 'Failed to start batch rendering');
-        setRenderProgress(prev => ({ ...prev, isRendering: false }));
-      }
-    } catch (err) {
-      console.error('Batch render all failed:', err);
-      message.error('Failed to start batch rendering');
-      setRenderProgress(prev => ({ ...prev, isRendering: false }));
-    }
-  };
-
-  const handleStopRender = async () => {
-    if (!run) return;
-
-    try {
-      const response = await fetch('/api/stop-render', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ run })
-      });
-      const data = await response.json();
-
-      if (data.success) {
-        message.success('Render stopped');
-        setRenderProgress(prev => ({ ...prev, isRendering: false }));
-      } else {
-        message.warning('No active render to stop');
-      }
-    } catch (err) {
-      console.error('Stop render failed:', err);
-      message.error('Failed to stop render');
-    }
-  };
-
   const handleDownloadAll = async () => {
     if (!run) {
       message.warning('No run selected');
@@ -236,20 +120,25 @@ export default function Home() {
     }
 
     try {
-      const checkResponse = await fetch(`/api/check-run-pngs?run=${encodeURIComponent(run)}`);
-      const checkData = await checkResponse.json();
+      const url = `/api/download-all?run=${encodeURIComponent(run)}`;
 
-      if (!checkData.complete) {
-        message.warning(`Cannot download: ${checkData.missingCount} PNGs not rendered yet. Please run "Render All" first.`);
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        const data = await response.json();
+        if (data.message) {
+          message.error(data.message);
+        } else {
+          message.error(data.error || 'Download failed');
+        }
         return;
       }
 
-      const url = `/api/download-all?run=${encodeURIComponent(run)}`;
       window.location.href = url;
       message.success('Preparing download...');
     } catch (err) {
-      console.error('Download all check failed:', err);
-      message.error('Failed to check PNG status');
+      console.error('Download all failed:', err);
+      message.error('Failed to download');
     }
   };
 
@@ -515,115 +404,26 @@ export default function Home() {
                   minHeight: isMobile ? 'auto' : 88,
                   width: isMobile ? '100%' : 'auto'
                 }}>
-                  <Flex gap={isMobile ? 8 : 12} align="center" wrap={isMobile ? "wrap" : "nowrap"} style={{ flexDirection: isMobile ? "column" : 'row-reverse', width: '100%' }}>
-                    <Flex gap={isMobile ? 8 : 12} align="center" wrap={isMobile ? "wrap" : "nowrap"} style={{ width: isMobile ? '100%' : 'auto' }}>
-                      <Button
-                        type="primary"
-                        icon={<ThunderboltOutlined />}
-                        onClick={handleRenderAll}
-                        disabled={!run || renderProgress.isRendering}
-                        size={isMobile ? "middle" : "large"}
-                        style={{ flex: isMobile ? 1 : 'none' }}
-                      >
-                        {isMobile ? "Render" : "Render All"}
-                      </Button>
+                  <Flex gap={isMobile ? 8 : 12} align="center" wrap={isMobile ? "wrap" : "nowrap"} style={{ width: isMobile ? '100%' : 'auto' }}>
+                    <Button
+                      icon={<DownloadOutlined />}
+                      onClick={handleDownloadAll}
+                      disabled={!run}
+                      size={isMobile ? "middle" : "large"}
+                      style={{ flex: isMobile ? 1 : 'none' }}
+                    >
+                      {isMobile ? "Download" : "Download All"}
+                    </Button>
 
-                      <Button
-                        icon={<DownloadOutlined />}
-                        onClick={handleDownloadAll}
-                        disabled={!run}
-                        size={isMobile ? "middle" : "large"}
-                        style={{ flex: isMobile ? 1 : 'none' }}
-                      >
-                        {isMobile ? "Download" : "Download All"}
-                      </Button>
-
-                      <Button
-                        icon={<CheckCircleOutlined />}
-                        onClick={handleCheckRun}
-                        disabled={!run}
-                        size={isMobile ? "middle" : "large"}
-                        style={{ flex: isMobile ? 1 : 'none' }}
-                      >
-                        {isMobile ? "Check" : "Check Run"}
-                      </Button>
-                    </Flex>
-
-                    {isMobile ? (
-                      renderProgress.isRendering && (
-                        <div style={{
-                          width: '100%',
-                          marginTop: 12,
-                          animation: 'fadeIn 0.3s ease-out'
-                        }}>
-                          <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <Text strong style={{ color: '#1677ff', whiteSpace: 'nowrap' }}>
-                              <ThunderboltOutlined style={{ marginRight: 8 }} />
-                              Rendering PNGs...
-                            </Text>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                              <Text type="secondary" style={{ whiteSpace: 'nowrap' }}>
-                                {renderProgress.completed} / {renderProgress.total}
-                              </Text>
-                              <Button
-                                danger
-                                size="small"
-                                icon={<StopOutlined />}
-                                onClick={handleStopRender}
-                              >
-                                Stop
-                              </Button>
-                            </div>
-                          </div>
-                          <Progress
-                            percent={renderProgress.total > 0 ? Math.round((renderProgress.completed / renderProgress.total) * 100) : 0}
-                            status="active"
-                            strokeColor={{
-                              '0%': '#108ee9',
-                              '100%': '#87d068',
-                            }}
-                          />
-                        </div>
-                      )
-                    ) : (
-                      <div style={{
-                        width: renderProgress.isRendering ? 400 : 0,
-                        opacity: renderProgress.isRendering ? 1 : 0,
-                        overflow: 'hidden',
-                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                        marginRight: renderProgress.isRendering ? 12 : 0
-                      }}>
-                        <div style={{ width: 400 }}>
-                          <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <Text strong style={{ color: '#1677ff', whiteSpace: 'nowrap' }}>
-                              <ThunderboltOutlined style={{ marginRight: 8 }} />
-                              Rendering PNGs...
-                            </Text>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                              <Text type="secondary" style={{ whiteSpace: 'nowrap' }}>
-                                {renderProgress.completed} / {renderProgress.total}
-                              </Text>
-                              <Button
-                                danger
-                                size="small"
-                                icon={<StopOutlined />}
-                                onClick={handleStopRender}
-                              >
-                                Stop
-                              </Button>
-                            </div>
-                          </div>
-                          <Progress
-                            percent={renderProgress.total > 0 ? Math.round((renderProgress.completed / renderProgress.total) * 100) : 0}
-                            status="active"
-                            strokeColor={{
-                              '0%': '#108ee9',
-                              '100%': '#87d068',
-                            }}
-                          />
-                        </div>
-                      </div>
-                    )}
+                    <Button
+                      icon={<CheckCircleOutlined />}
+                      onClick={handleCheckRun}
+                      disabled={!run}
+                      size={isMobile ? "middle" : "large"}
+                      style={{ flex: isMobile ? 1 : 'none' }}
+                    >
+                      {isMobile ? "Check" : "Check Run"}
+                    </Button>
                   </Flex>
                 </div>
               </Flex>
