@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Layout, Typography, Button, Upload, message, Empty, Spin, Space, Segmented } from 'antd';
-import { InboxOutlined, DeleteOutlined, EyeOutlined, ExperimentOutlined, ThunderboltOutlined, CloudUploadOutlined, MenuFoldOutlined, MenuUnfoldOutlined, PlayCircleOutlined } from '@ant-design/icons';
+import { InboxOutlined, DeleteOutlined, EyeOutlined, ExperimentOutlined, ThunderboltOutlined, CloudUploadOutlined, MenuFoldOutlined, MenuUnfoldOutlined, PlayCircleOutlined, DownloadOutlined } from '@ant-design/icons';
 import PreviewCard from '../components/PreviewCard';
 import Link from 'next/link';
 
@@ -174,6 +174,29 @@ export default function Playground() {
   const anyRenderable = files.some((f) => !f.png);
   const isUploadMode = mode === 'upload';
 
+  const handleDownloadAll = async () => {
+    try {
+      const url = '/api/playground/download-all';
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        const data = await response.json();
+        if (data.message) {
+          message.error(data.message);
+        } else {
+          message.error(data.error || 'Download failed');
+        }
+        return;
+      }
+
+      window.location.href = url;
+      message.success('Preparing download...');
+    } catch (err) {
+      console.error('Download all failed:', err);
+      message.error('Failed to download');
+    }
+  };
+
   return (
     <Layout className="layout">
       <Header style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 24px', height: 64, flexShrink: 0, lineHeight: 'normal' }}>
@@ -248,6 +271,7 @@ export default function Playground() {
                 <Title level={5} style={{ margin: 0 }}>Previews</Title>
                 {rendering ? <Spin size="small" /> : null}
                 <Space style={{ marginLeft: 'auto' }}>
+                  <Button icon={<DownloadOutlined />} onClick={handleDownloadAll} disabled={!files.length}>Download All</Button>
                   <Button icon={<DeleteOutlined />} onClick={async () => { await fetch('/api/playground/reset', { method: 'POST' }); await refreshList(); }}>Clear</Button>
                   <Button type="primary" icon={<PlayCircleOutlined />} loading={rendering} disabled={!files.length || !anyRenderable} onClick={onRenderAll}>Render All</Button>
                 </Space>
