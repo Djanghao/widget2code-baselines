@@ -96,6 +96,25 @@ python scripts/batch_infer.py --images-dir /shared/zhixiang_team/widget_research
 
 
 # -----------------------------------------------------------------------------
+# qwen3-vl-8b-instruct
+# -----------------------------------------------------------------------------
+python scripts/batch_infer.py --images-dir /shared/zhixiang_team/widget_research/images/images-test-1000 \
+  --experiment qwen3vl-8b-instruct-test-1000-html-no-size-minimal-cal-size-cal-aspect-ratio \
+  --threads 1 --model qwen3-vl-8b-instruct --include "html-no-size/1-minimal.md" --size --aspect-ratio
+
+python scripts/batch_infer.py --images-dir /shared/zhixiang_team/widget_research/images/images-test-1000 \
+  --experiment qwen3vl-8b-instruct-test-1000-html-no-size-minimal-cal-size \
+  --threads 1 --model qwen3-vl-8b-instruct --include "html-no-size/1-minimal.md" --size
+  
+python scripts/batch_infer.py --images-dir /shared/zhixiang_team/widget_research/images/images-test-1000 \
+  --experiment qwen3vl-8b-instruct-test-1000-html-no-size-minimal-cal-aspect-ratio \
+  --threads 1 --model qwen3-vl-8b-instruct --include "html-no-size/1-minimal.md" --aspect-ratio
+
+python scripts/batch_infer.py --images-dir /shared/zhixiang_team/widget_research/images/images-test-1000 \
+  --experiment qwen3vl-8b-instruct-test-1000-html-no-size-minimal \
+  --threads 1 --model qwen3-vl-8b-instruct --include "html-no-size/1-minimal.md"
+
+# -----------------------------------------------------------------------------
 # gemini-2.5-pro
 # -----------------------------------------------------------------------------
 source venv/bin/activate
