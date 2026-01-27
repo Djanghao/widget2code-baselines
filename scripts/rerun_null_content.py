@@ -95,6 +95,9 @@ def rerun_single_task(
     max_tokens = run_meta.get("max_tokens", 1500)
     timeout = run_meta.get("timeout", 90)
     thinking = run_meta.get("thinking")
+    stop_sequences = run_meta.get("stop_sequences")
+    if isinstance(stop_sequences, str):
+        stop_sequences = [stop_sequences]
 
     try:
         llm = LLM(
@@ -123,6 +126,8 @@ def rerun_single_task(
             return (task_id, False, "Response content still empty")
 
         code = batch_infer.extract_code(raw)
+        if stop_sequences and category.startswith("html"):
+            code = batch_infer.trim_to_stop(code, stop_sequences)
         ext = batch_infer.decide_extension(code)
         expected_ext = ".html" if category.startswith("html") else ".jsx"
         file_ext = ext if ext in (".html", ".jsx") else expected_ext

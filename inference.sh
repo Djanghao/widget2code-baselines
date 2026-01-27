@@ -114,6 +114,47 @@ python scripts/batch_infer.py --images-dir /shared/zhixiang_team/widget_research
   --experiment qwen3vl-8b-instruct-test-1000-html-no-size-minimal \
   --threads 1 --model qwen3-vl-8b-instruct --include "html-no-size/1-minimal.md"
 
+
+# -----------------------------------------------------------------------------
+# qwen3-vl-32b-instruct
+# -----------------------------------------------------------------------------
+python scripts/batch_infer.py --images-dir /home/houston/workspace/widget-research/widget-factory-release/data/assets/images-test-1000 \
+  --experiment qwen3vl-32b-instruct-test-1000-html-no-size-minimal-cal-size-cal-aspect-ratio \
+  --threads 1 --model qwen3-vl-32b-instruct --include "html-no-size/1-minimal.md" --size --aspect-ratio
+
+python scripts/batch_infer.py --images-dir /home/houston/workspace/widget-research/widget-factory-release/data/assets/images-test-1000 \
+  --experiment qwen3vl-32b-instruct-test-1000-html-no-size-minimal-cal-size \
+  --threads 1 --model qwen3-vl-32b-instruct --include "html-no-size/1-minimal.md" --size
+  
+python scripts/batch_infer.py --images-dir /home/houston/workspace/widget-research/widget-factory-release/data/assets/images-test-1000 \
+  --experiment qwen3vl-32b-instruct-test-1000-html-no-size-minimal-cal-aspect-ratio \
+  --threads 1 --model qwen3-vl-32b-instruct --include "html-no-size/1-minimal.md" --aspect-ratio
+
+python scripts/batch_infer.py --images-dir /home/houston/workspace/widget-research/widget-factory-release/data/assets/images-test-1000 \
+  --experiment qwen3vl-32b-instruct-test-1000-html-no-size-minimal \
+  --threads 1 --model qwen3-vl-32b-instruct --include "html-no-size/1-minimal.md"
+
+
+# -----------------------------------------------------------------------------
+# qwen2.5-vl-32b-instruct
+# -----------------------------------------------------------------------------
+python scripts/batch_infer.py --images-dir /home/houston/workspace/widget-research/widget-factory-release/data/assets/images-test-1000 \
+  --experiment qwen2.5vl-32b-instruct-test-1000-html-no-size-minimal-cal-size-cal-aspect-ratio \
+  --threads 1 --model qwen2.5-vl-32b-instruct --include "html-no-size/1-minimal.md" --size --aspect-ratio
+
+python scripts/batch_infer.py --images-dir /home/houston/workspace/widget-research/widget-factory-release/data/assets/images-test-1000 \
+  --experiment qwen2.5vl-32b-instruct-test-1000-html-no-size-minimal-cal-size \
+  --threads 1 --model qwen2.5-vl-32b-instruct --include "html-no-size/1-minimal.md" --size
+  
+python scripts/batch_infer.py --images-dir /home/houston/workspace/widget-research/widget-factory-release/data/assets/images-test-1000 \
+  --experiment qwen2.5vl-32b-instruct-test-1000-html-no-size-minimal-cal-aspect-ratio \
+  --threads 1 --model qwen2.5-vl-32b-instruct --include "html-no-size/1-minimal.md" --aspect-ratio
+
+python scripts/batch_infer.py --images-dir /home/houston/workspace/widget-research/widget-factory-release/data/assets/images-test-1000 \
+  --experiment qwen2.5vl-32b-instruct-test-1000-html-no-size-minimal \
+  --threads 1 --model qwen2.5-vl-32b-instruct --include "html-no-size/1-minimal.md"
+
+
 # -----------------------------------------------------------------------------
 # gemini-2.5-pro
 # -----------------------------------------------------------------------------

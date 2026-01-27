@@ -137,6 +137,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     top_p = args.top_p if args.top_p is not None else float(run_meta.get("top_p", 0.9))
     max_tokens = args.max_tokens if args.max_tokens is not None else int(run_meta.get("max_tokens", 1500))
     timeout = args.timeout if args.timeout is not None else int(run_meta.get("timeout", 90))
+    stop_sequences = run_meta.get("stop_sequences")
+    if isinstance(stop_sequences, str):
+        stop_sequences = [stop_sequences]
 
     print(f"Provider={provider} Model={model} Base URL={base_url}")
     print(f"temperature={temperature} top_p={top_p} max_tokens={max_tokens} timeout={timeout}")
@@ -162,6 +165,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 top_p=top_p,
                 max_tokens=max_tokens,
                 timeout=timeout,
+                stop_sequences=stop_sequences,
             ): (image_dir, category, base_name)
             for image_dir, category, base_name, file_type, prompt_text, source in tasks
         }

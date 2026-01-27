@@ -150,6 +150,7 @@ def run_one_snapshot(
     top_p: float,
     max_tokens: int,
     timeout: int,
+    stop_sequences: Optional[List[str]],
 ) -> Tuple[Path, Optional[str], Optional[str]]:
     out_cat = out_dir / category
     out_cat.mkdir(parents=True, exist_ok=True)
@@ -202,6 +203,8 @@ def run_one_snapshot(
     raw = resp.content if hasattr(resp, "content") else str(resp)
 
     code = batch_infer.extract_code(raw) if raw else ""
+    if stop_sequences and category.startswith("html"):
+        code = batch_infer.trim_to_stop(code, stop_sequences)
     expected_ext = expected_extension_from_type(file_type)
     # Strictly use meta-declared file_type for extension
     file_ext = expected_ext
@@ -242,6 +245,9 @@ def rerun_missing(run_dir: Path, threads: int = 8, limit: Optional[int] = None, 
     thinking = run_meta.get("thinking")
     size_flag = bool(run_meta.get("size", False))
     aspect_ratio_flag = bool(run_meta.get("aspect_ratio", False))
+    stop_sequences = run_meta.get("stop_sequences")
+    if isinstance(stop_sequences, str):
+        stop_sequences = [stop_sequences]
 
     # API key will be validated (if required) after optional dry-run
     api_key: Optional[str] = None
@@ -377,6 +383,7 @@ def rerun_missing(run_dir: Path, threads: int = 8, limit: Optional[int] = None, 
                     top_p,
                     max_tokens,
                     timeout,
+                    stop_sequences,
                 )
             )
 

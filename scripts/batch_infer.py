@@ -87,6 +87,23 @@ def extract_code(content: str) -> str:
     return s
 
 
+def trim_to_stop(code: str, stop_sequences: Optional[List[str]]) -> str:
+    if not code or not stop_sequences:
+        return code
+    earliest = None
+    stop_used = None
+    for seq in stop_sequences:
+        if not seq:
+            continue
+        idx = code.find(seq)
+        if idx != -1 and (earliest is None or idx < earliest):
+            earliest = idx
+            stop_used = seq
+    if earliest is None or stop_used is None:
+        return code
+    return code[: earliest + len(stop_used)]
+
+
 def decide_extension(code: str) -> str:
     starts = code.lstrip().lower()
     if starts.startswith("<html"):
@@ -142,6 +159,7 @@ def run_one(
     thinking: Optional[bool],
     size_flag: bool,
     aspect_ratio_flag: bool,
+    stop_sequences: Optional[List[str]],
 ) -> Tuple[Path, Optional[str], Optional[str]]:
     constraint_text, size_info = build_size_constraint_text(image_path, size_flag, aspect_ratio_flag)
     if constraint_text:
@@ -191,6 +209,8 @@ def run_one(
 
     raw = resp.content if hasattr(resp, "content") else str(resp)
     code = extract_code(raw) if raw else ""
+    if stop_sequences and category.startswith("html"):
+        code = trim_to_stop(code, stop_sequences)
     ext = decide_extension(code)
     expected_ext = ".html" if category.startswith("html") else ".jsx"
     file_ext = ext if ext in (".html", ".jsx") else expected_ext
@@ -215,6 +235,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--max-tokens", type=int, default=1500)
     p.add_argument("--timeout", type=int, default=90)
     p.add_argument("--thinking", action="store_true", default=None, help="Enable provider thinking when supported")
+    p.add_argument("--stop-seq", action="append", default=None, help="Stop sequence(s) for trimming output (HTML only)")
     p.add_argument("--include", nargs="*", help="Optional glob filters relative to prompts root, e.g. 'react/*' 'html/1-*' ")
     p.add_argument("--exclude", nargs="*", help="Optional glob filters to exclude")
     p.add_argument("--suffix", default="", help="Optional extra suffix for run directory name")
@@ -261,6 +282,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "exclude": args.exclude,
         "size": args.size,
         "aspect_ratio": args.aspect_ratio,
+        "stop_sequences": args.stop_seq,
         "created_at": ts,
     }
     (run_dir / "run.meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -301,6 +323,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         args.thinking,
                         args.size,
                         args.aspect_ratio,
+                        args.stop_seq,
                     )
                 )
 
