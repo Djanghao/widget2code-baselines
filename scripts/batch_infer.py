@@ -28,16 +28,14 @@ from openai import OpenAI
 # CLI --base-url / --api-key always take precedence over env vars.
 # ---------------------------------------------------------------------------
 MODEL_REGISTRY = {
-    "gpt-4o":                 ("GPT_4O_BASE_URL",          "GPT_4O_API_KEY"),
-    "gpt-5.3":                ("GPT_5_3_BASE_URL",         "GPT_5_3_API_KEY"),
-    "claude-opus-4-5-20251101": ("CLAUDE_OPUS_4_5_BASE_URL", "CLAUDE_OPUS_4_5_API_KEY"),
-    "gemini-3.1-pro-preview": ("GEMINI_3_1_PRO_BASE_URL",  "GEMINI_3_1_PRO_API_KEY"),
-    "gemini-3-pro-preview":   ("GEMINI_3_0_PRO_BASE_URL",  "GEMINI_3_0_PRO_API_KEY"),
-    "doubao-1.8":             ("DOUBAO_1_8_BASE_URL",      "DOUBAO_1_8_API_KEY"),
-    "doubao-seed-1-8-251228": ("DOUBAO_1_8_BASE_URL",      "DOUBAO_1_8_API_KEY"),
-    "qwen3-vl-plus":          ("QWEN3_VL_PLUS_BASE_URL",   "QWEN3_VL_PLUS_API_KEY"),
-    "qwen3.5-plus":           ("QWEN3_5_PLUS_BASE_URL",    "QWEN3_5_PLUS_API_KEY"),
-    "qwen3.6-plus":           ("QWEN3_6_PLUS_BASE_URL",    "QWEN3_6_PLUS_API_KEY"),
+    "gpt-4o":                         ("GPT_4O_BASE_URL",          "GPT_4O_API_KEY"),
+    "gpt-5.2":                        ("GPT_5_2_BASE_URL",         "GPT_5_2_API_KEY"),
+    "claude-opus-4-5-20251101":       ("CLAUDE_OPUS_4_5_BASE_URL", "CLAUDE_OPUS_4_5_API_KEY"),
+    "gemini-3-pro-preview":           ("GEMINI_3_0_PRO_BASE_URL",  "GEMINI_3_0_PRO_API_KEY"),
+    "doubao-seed-1-8-251228":         ("DOUBAO_1_8_BASE_URL",      "DOUBAO_1_8_API_KEY"),
+    "doubao-seed-2-0-pro-260215-32k": ("DOUBAO_2_0_BASE_URL",      "DOUBAO_2_0_API_KEY"),
+    "qwen3-vl-plus":                  ("QWEN3_VL_PLUS_BASE_URL",   "QWEN3_VL_PLUS_API_KEY"),
+    "qwen3.5-plus":                   ("QWEN3_5_PLUS_BASE_URL",    "QWEN3_5_PLUS_API_KEY"),
 }
 
 
