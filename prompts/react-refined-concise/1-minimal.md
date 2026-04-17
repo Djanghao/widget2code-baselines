@@ -1,17 +1,14 @@
-You are an expert front-end developer.
-Generate ONE single React component that reproduces the widget UI in the screenshot.
+Reproduce the widget screenshot as ONE React component.
 You can use react-icons and recharts. No other third-party libraries.
 
 Rules:
 - Output ONLY:
 
-<zero or more import lines for required components>
+<zero or more import lines>
 
 export default function Widget() { return (
   /* JSX */
 ); }
 
-- No comments, no extra text.
-- Always import all external components used in the JSX, and nothing else.
 - Root element must be <div className="widget"> … </div>.
-- Import every external component you use.
+- Import every external component you use, and nothing else.

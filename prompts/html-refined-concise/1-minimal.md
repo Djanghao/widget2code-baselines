@@ -1,5 +1,5 @@
-Given a phone widget screenshot, generate ONE single self-contained HTML file that reproduces the widget UI.
+Reproduce the phone widget screenshot as ONE self-contained HTML file.
 Rules:
 - Output ONLY HTML code. No explanations, no comments.
-- Begin exactly with: <html lang="en"> and end exactly with: </html>.
-- Place all widget content inside exactly one container: <div class="widget"> ... </div> in the <body>.
+- Start with <html lang="en">, end with </html>.
+- Wrap all widget content in one <div class="widget"> ... </div> inside <body>.
