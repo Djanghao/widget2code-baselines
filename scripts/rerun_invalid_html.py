@@ -103,7 +103,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--threads", type=int, default=4, help="Number of parallel workers")
     p.add_argument("--limit", type=int, default=None, help="Limit number of tasks to rerun")
     p.add_argument("--dry-run", action="store_true", help="Only list tasks, don't run")
-    p.add_argument("--provider", default=None, help="Provider override")
     p.add_argument("--model", default=None, help="Model override")
     p.add_argument("--api-key", dest="api_key", default=None, help="API key override")
     p.add_argument("--base-url", dest="base_url", default=None, help="Base URL override")
@@ -130,9 +129,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"- {image_dir.name}/{category}/{base_name}")
         return 0
 
-    provider = args.provider if args.provider is not None else run_meta.get("provider")
     model = args.model if args.model is not None else run_meta.get("model")
-    base_url = args.base_url if args.base_url is not None else run_meta.get("base_url")
+    base_url_override = args.base_url if args.base_url is not None else run_meta.get("base_url")
     temperature = args.temperature if args.temperature is not None else float(run_meta.get("temperature", 0.2))
     top_p = args.top_p if args.top_p is not None else float(run_meta.get("top_p", 0.9))
     max_tokens = args.max_tokens if args.max_tokens is not None else int(run_meta.get("max_tokens", 1500))
@@ -141,7 +139,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     if isinstance(stop_sequences, str):
         stop_sequences = [stop_sequences]
 
-    print(f"Provider={provider} Model={model} Base URL={base_url}")
+    from batch_infer import resolve_model_config
+    api_keys, base_url = resolve_model_config(model, args.api_key, base_url_override)
+
+    print(f"Model={model} Base URL={base_url} Keys={len(api_keys)}")
     print(f"temperature={temperature} top_p={top_p} max_tokens={max_tokens} timeout={timeout}")
 
     ok = 0
@@ -158,8 +159,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 prompt_text=prompt_text,
                 out_dir=image_dir,
                 model=model,
-                provider=provider,
-                api_key=args.api_key,
+                api_keys=api_keys,
                 base_url=base_url,
                 temperature=temperature,
                 top_p=top_p,

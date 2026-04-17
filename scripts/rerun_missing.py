@@ -10,18 +10,12 @@ import datetime as dt
 
 # Import sibling helpers from batch_infer
 try:
-    # When executed as a script (python scripts/rerun_missing.py), this works
     import batch_infer  # type: ignore
 except Exception as e:
     print(f"Failed to import batch_infer: {e}", file=sys.stderr)
     raise
 
-# Use provider_hub directly to avoid re-writing meta.json
-try:
-    from provider_hub import LLM, ChatMessage, prepare_image_content  # type: ignore
-except Exception as e:
-    print(f"Failed to import provider_hub: {e}", file=sys.stderr)
-    raise
+from batch_infer import prepare_image_content, resolve_model_config, chat_completion_with_fallback
 
 
 def find_source_image(image_dir: Path) -> Optional[Path]:
@@ -67,13 +61,6 @@ def collect_missing(run_dir: Path) -> Tuple[dict, List[Tuple[Path, str, str, Opt
     if not run_meta_file.exists():
         raise FileNotFoundError(f"run.meta.json not found in {run_dir}")
     run_meta = json.loads(run_meta_file.read_text(encoding="utf-8"))
-
-    def base_from_meta(meta_path: Path) -> str:
-        name = meta_path.name
-        if name.endswith(".meta.json"):
-            return name[: -len(".meta.json")]
-        # Fallback: single stem
-        return meta_path.stem
 
     # Get expected prompts from run.meta.json
     prompts_root = Path(run_meta.get("prompts_root", "prompts"))
@@ -143,9 +130,8 @@ def run_one_snapshot(
     prompt_text: str,
     out_dir: Path,
     model: str,
-    provider: Optional[str],
-    api_key: Optional[str],
-    base_url: Optional[str],
+    api_keys: List[str],
+    base_url: str,
     temperature: float,
     top_p: float,
     max_tokens: int,
@@ -169,22 +155,14 @@ def run_one_snapshot(
             "file_type": file_type,
         }
 
-    # Build LLM
-    llm = LLM(
-        provider=provider,
-        model=model,
-        api_key=api_key,
-        base_url=base_url,
-        temperature=temperature,
-        top_p=top_p,
-        max_tokens=max_tokens,
-        timeout=timeout,
-    )
-    img = prepare_image_content(str(image_path))
-    messages = [ChatMessage(role="user", content=[{"type": "text", "text": prompt_text}, img])]
+    img_content = prepare_image_content(str(image_path))
+    messages = [{"role": "user", "content": [{"type": "text", "text": prompt_text}, img_content]}]
 
     try:
-        resp = llm.chat(messages)
+        resp = chat_completion_with_fallback(
+            api_keys, base_url, model, messages,
+            temperature, top_p, max_tokens, timeout,
+        )
     except Exception as e:
         # Update meta.json with error
         meta_data["response"] = None
@@ -192,17 +170,22 @@ def run_one_snapshot(
         meta_out_file.write_text(json.dumps(meta_data, ensure_ascii=False, indent=2), encoding="utf-8")
         return (out_cat / f"{base_name}{expected_extension_from_type(file_type)}", None, f"ERROR: {e}")
 
-    # Update meta.json with response and clear error field
-    from dataclasses import asdict
-    meta_data["response"] = asdict(resp) if hasattr(resp, "__dataclass_fields__") else {"content": str(resp)}
+    content = resp.choices[0].message.content if resp.choices else None
+    meta_data["response"] = {
+        "content": content,
+        "model": resp.model,
+        "usage": {
+            "prompt_tokens": resp.usage.prompt_tokens,
+            "completion_tokens": resp.usage.completion_tokens,
+            "total_tokens": resp.usage.total_tokens,
+        } if resp.usage else None,
+    }
     # Clear error field if present (from previous failed run)
     if "error" in meta_data:
         del meta_data["error"]
     meta_out_file.write_text(json.dumps(meta_data, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    raw = resp.content if hasattr(resp, "content") else str(resp)
-
-    code = batch_infer.extract_code(raw) if raw else ""
+    code = batch_infer.extract_code(content) if content else ""
     if stop_sequences and category.startswith("html"):
         code = batch_infer.trim_to_stop(code, stop_sequences)
     expected_ext = expected_extension_from_type(file_type)
@@ -232,28 +215,26 @@ def count_missing_all(run_dir: Path) -> int:
     return len(tasks)
 
 
-def rerun_missing(run_dir: Path, threads: int = 8, limit: Optional[int] = None, dry_run: bool = False, api_key_opt: Optional[str] = None) -> int:
+def rerun_missing(run_dir: Path, threads: int = 8, limit: Optional[int] = None, dry_run: bool = False, api_key_opt: Optional[str] = None, base_url_opt: Optional[str] = None) -> int:
     run_meta, tasks = collect_missing(run_dir)
 
-    provider = run_meta.get("provider")
-    base_url = run_meta.get("base_url")
     model = run_meta.get("model")
+    base_url = run_meta.get("base_url")
     temperature = float(run_meta.get("temperature", 0.2))
     top_p = float(run_meta.get("top_p", 0.9))
     max_tokens = int(run_meta.get("max_tokens", 1500))
     timeout = int(run_meta.get("timeout", 90))
-    thinking = run_meta.get("thinking")
     size_flag = bool(run_meta.get("size", False))
     aspect_ratio_flag = bool(run_meta.get("aspect_ratio", False))
     stop_sequences = run_meta.get("stop_sequences")
     if isinstance(stop_sequences, str):
         stop_sequences = [stop_sequences]
 
-    # API key will be validated (if required) after optional dry-run
-    api_key: Optional[str] = None
+    # Resolve API keys and base URL: CLI overrides > run.meta.json > env vars
+    api_keys, base_url = resolve_model_config(model, api_key_opt or None, base_url_opt or base_url)
 
     print(f"Loaded run.meta.json from: {run_dir}")
-    print(f"- Provider: {provider}  Model: {model}")
+    print(f"- Model: {model}")
     print(f"- Base URL: {base_url}  size={size_flag} aspect_ratio={aspect_ratio_flag}")
     total_missing_before = count_missing_all(run_dir)
     print(f"- Missing items detected: {len(tasks)}")
@@ -283,7 +264,7 @@ def rerun_missing(run_dir: Path, threads: int = 8, limit: Optional[int] = None, 
         return 0
 
     # Start log
-    log_line(run_dir, "RERUN START", f"provider={provider} model={model} base_url={base_url}")
+    log_line(run_dir, "RERUN START", f"model={model} base_url={base_url}")
     log_line(run_dir, "RERUN PLAN", f"missing_before={total_missing_before} scheduled={len(tasks)} threads={threads}")
     for image_dir, category, base_name, meta_file in tasks:
         status = "never-started"
@@ -308,13 +289,6 @@ def rerun_missing(run_dir: Path, threads: int = 8, limit: Optional[int] = None, 
         log_line(run_dir, "RERUN DONE", f"ok=0 fail=0 missing_after={total_missing_after}")
         print("Nothing to re-run. Missing=0")
         return 0
-
-    # Resolve API key: must be explicitly provided for openai_compatible
-    if provider == "openai_compatible":
-        if not api_key_opt:
-            print("ERROR: --api-key is required for provider 'openai_compatible' and environment variables are not allowed.", file=sys.stderr)
-            return 2
-        api_key = api_key_opt
 
     # Get prompts_root and patterns to reload prompts for never-started tasks
     prompts_root = Path(run_meta.get("prompts_root", "prompts"))
@@ -376,8 +350,7 @@ def rerun_missing(run_dir: Path, threads: int = 8, limit: Optional[int] = None, 
                     prompt_text,
                     image_dir,
                     model,
-                    provider,
-                    api_key,
+                    api_keys,
                     base_url,
                     temperature,
                     top_p,
@@ -410,7 +383,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--threads", type=int, default=8, help="Max concurrent workers")
     p.add_argument("--limit", type=int, default=None, help="Limit number of re-runs (for testing)")
     p.add_argument("--dry-run", action="store_true", help="Only print what would be re-run")
-    p.add_argument("--api-key", dest="api_key", default=None, help="API key override (used for 'openai_compatible')")
+    p.add_argument("--api-key", dest="api_key", default=None, help="API key override")
+    p.add_argument("--base-url", dest="base_url", default=None, help="Base URL override")
     args = p.parse_args(argv)
 
     run_dir = Path(args.run_dir)
@@ -418,7 +392,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"Run dir not found: {run_dir}", file=sys.stderr)
         return 2
 
-    return rerun_missing(run_dir, threads=args.threads, limit=args.limit, dry_run=args.dry_run, api_key_opt=args.api_key)
+    return rerun_missing(run_dir, threads=args.threads, limit=args.limit, dry_run=args.dry_run, api_key_opt=args.api_key, base_url_opt=args.base_url)
 
 
 if __name__ == "__main__":

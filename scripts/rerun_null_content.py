@@ -14,11 +14,7 @@ except Exception as e:
     print(f"Failed to import batch_infer: {e}", file=sys.stderr)
     raise
 
-try:
-    from provider_hub import LLM, ChatMessage, prepare_image_content
-except Exception as e:
-    print(f"Failed to import provider_hub: {e}", file=sys.stderr)
-    raise
+from batch_infer import prepare_image_content, resolve_model_config, chat_completion_with_fallback
 
 
 def find_source_image(image_dir: Path) -> Optional[Path]:
@@ -69,7 +65,9 @@ def rerun_single_task(
     category: str,
     base_name: str,
     meta_file: Path,
-    run_meta: dict
+    run_meta: dict,
+    api_keys: List[str],
+    base_url: str,
 ) -> Tuple[str, bool, Optional[str]]:
     task_id = f"{image_dir.name}/{category}/{base_name}"
 
@@ -86,46 +84,40 @@ def rerun_single_task(
     if not prompt_text:
         return (task_id, False, "No prompt in meta.json")
 
-    provider = run_meta.get("provider")
-    model = run_meta.get("model", "gemini-2.5-pro")
-    api_key = run_meta.get("api_key") or os.getenv("GEMINI_API_KEY") or os.getenv("API_KEY")
-    base_url = run_meta.get("base_url")
+    model = run_meta.get("model", "gpt-4o")
     temperature = run_meta.get("temperature", 0.2)
     top_p = run_meta.get("top_p", 0.9)
     max_tokens = run_meta.get("max_tokens", 1500)
     timeout = run_meta.get("timeout", 90)
-    thinking = run_meta.get("thinking")
     stop_sequences = run_meta.get("stop_sequences")
     if isinstance(stop_sequences, str):
         stop_sequences = [stop_sequences]
 
     try:
-        llm = LLM(
-            provider=provider,
-            model=model,
-            api_key=api_key,
-            base_url=base_url,
-            temperature=temperature,
-            top_p=top_p,
-            max_tokens=max_tokens,
-            timeout=timeout,
-            thinking=thinking,
+        img_content = prepare_image_content(str(source_image))
+        messages = [{"role": "user", "content": [{"type": "text", "text": prompt_text}, img_content]}]
+
+        resp = chat_completion_with_fallback(
+            api_keys, base_url, model, messages,
+            temperature, top_p, max_tokens, timeout,
         )
 
-        img = prepare_image_content(str(source_image))
-        messages = [ChatMessage(role="user", content=[{"type": "text", "text": prompt_text}, img])]
-        resp = llm.chat(messages)
-
-        from dataclasses import asdict
-        old_meta["response"] = asdict(resp) if hasattr(resp, "__dataclass_fields__") else {"content": str(resp)}
+        content = resp.choices[0].message.content if resp.choices else None
+        old_meta["response"] = {
+            "content": content,
+            "model": resp.model,
+            "usage": {
+                "prompt_tokens": resp.usage.prompt_tokens,
+                "completion_tokens": resp.usage.completion_tokens,
+                "total_tokens": resp.usage.total_tokens,
+            } if resp.usage else None,
+        }
         meta_file.write_text(json.dumps(old_meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
-        raw = resp.content if hasattr(resp, "content") else str(resp)
-
-        if not raw:
+        if not content:
             return (task_id, False, "Response content still empty")
 
-        code = batch_infer.extract_code(raw)
+        code = batch_infer.extract_code(content)
         if stop_sequences and category.startswith("html"):
             code = batch_infer.trim_to_stop(code, stop_sequences)
         ext = batch_infer.decide_extension(code)
@@ -147,6 +139,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--run-dir", required=True, help="Run directory to check")
     p.add_argument("--threads", type=int, default=4, help="Number of parallel workers")
     p.add_argument("--dry-run", action="store_true", help="Only list tasks, don't run")
+    p.add_argument("--api-key", dest="api_key", default=None, help="API key override")
+    p.add_argument("--base-url", dest="base_url", default=None, help="Base URL override")
     args = p.parse_args(argv)
 
     run_dir = Path(args.run_dir)
@@ -160,6 +154,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not tasks:
         print("No tasks with null content found.")
         return 0
+
+    # Resolve API keys and base URL from run.meta.json + env
+    model = run_meta.get("model", "gpt-4o")
+    api_keys, base_url = resolve_model_config(
+        model,
+        args.api_key,
+        args.base_url or run_meta.get("base_url"),
+    )
 
     print(f"\nFound {len(tasks)} tasks with null content:")
     for image_dir, category, base_name, meta_file in tasks:
@@ -176,17 +178,17 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     with futures.ThreadPoolExecutor(max_workers=args.threads) as executor:
         future_map = {
-            executor.submit(rerun_single_task, img_dir, cat, bn, mf, run_meta): (img_dir, cat, bn)
+            executor.submit(rerun_single_task, img_dir, cat, bn, mf, run_meta, api_keys, base_url): (img_dir, cat, bn)
             for img_dir, cat, bn, mf in tasks
         }
 
         for future in futures.as_completed(future_map):
             task_id, success, error = future.result()
             if success:
-                print(f"✓ {task_id}")
+                print(f"\u2713 {task_id}")
                 success_count += 1
             else:
-                print(f"✗ {task_id}: {error}")
+                print(f"\u2717 {task_id}: {error}")
                 failure_count += 1
 
     print(f"\n{'='*80}")
