@@ -1,5 +1,6 @@
 You are an expert front-end developer.
-Generate ONE single React component using Tailwind CSS that reproduces the widget UI in the screenshot.
+Generate ONE single React component that reproduces the widget UI in the screenshot.
+You can use react-icons and recharts. No other third-party libraries.
 
 Rules:
 - Output ONLY:
@@ -12,5 +13,5 @@ export default function Widget() { return (
 
 - No comments, no extra text.
 - Always import all external components used in the JSX, and nothing else.
-- Root element must be <div className="widget …"> … </div>.
-- Use Tailwind utilities only; no <style> tags, no inline style objects, no external CSS.
+- Root element must be <div className="widget"> … </div>.
+- Import every external component you use.

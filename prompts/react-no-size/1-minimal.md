@@ -3,7 +3,7 @@ Generate ONE single React component that reproduces the widget UI in the screens
 
 Rules:
 - Output ONLY:
-- 
+
 <zero or more import lines for required components>
 
 export default function Widget() { return (

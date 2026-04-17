@@ -3,11 +3,9 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
 import esbuild from 'esbuild';
-import React from 'react';
-import ReactDOMServer from 'react-dom/server';
 import { chromium } from 'playwright';
 
 EventEmitter.defaultMaxListeners = 20;
@@ -25,31 +23,12 @@ function normalizeJsxToTemp(inputPath, tmpDir) {
   return out;
 }
 
-async function buildForNode(inputPath, outFile, workingDir) {
-  const viewerRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-  await esbuild.build({
-    entryPoints: [inputPath],
-    outfile: outFile,
-    bundle: true,
-    platform: 'node',
-    format: 'esm',
-    target: ['node18'],
-    jsx: 'automatic',
-    jsxImportSource: 'react',
-    sourcemap: false,
-    logLevel: 'silent',
-    absWorkingDir: workingDir || viewerRoot,
-    nodePaths: [viewerRoot, path.join(viewerRoot, 'node_modules')],
-  });
-}
-
 async function buildForBrowser(inputPath, outFile, workingDir) {
   const viewerRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
   const entryCode = `import React from 'react';
-import { hydrateRoot } from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
 import Widget from ${JSON.stringify(inputPath)};
-const root = document.getElementById('root');
-hydrateRoot(root, React.createElement(Widget));`;
+createRoot(document.getElementById('root')).render(React.createElement(Widget));`;
   const entryFile = outFile.replace(/\.js$/, '.entry.js');
   fs.writeFileSync(entryFile, entryCode, 'utf8');
   await esbuild.build({
@@ -69,7 +48,7 @@ hydrateRoot(root, React.createElement(Widget));`;
   });
 }
 
-function htmlTemplate({ ssrMarkup, includeTailwindCdn = true }) {
+function htmlTemplate({ includeTailwindCdn = true }) {
   const tailwindScripts = includeTailwindCdn
     ? `\n    <script>window.tailwind=window.tailwind||{};window.tailwind.config={corePlugins:{preflight:false}};<\/script>\n    <script src=\"https://cdn.tailwindcss.com\"><\/script>\n  `
     : '';
@@ -87,7 +66,7 @@ function htmlTemplate({ ssrMarkup, includeTailwindCdn = true }) {
   <title>render-jsx-batch</title>
 </head>
 <body>
-  <div id="root">${ssrMarkup}</div>
+  <div id="root"></div>
 </body>
 </html>`;
 }
@@ -149,6 +128,8 @@ async function main() {
     await warm.close();
   } catch {}
 
+  const htmlShell = htmlTemplate({ includeTailwindCdn: true });
+
   let idx = 0;
   let processed = 0;
   let okCount = 0;
@@ -161,34 +142,47 @@ async function main() {
       const file = files[i];
       const t0 = Date.now();
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'render-jsx-batch-'));
-      const ssrOut = path.join(tmpDir, 'ssr.js');
       const browserOut = path.join(tmpDir, 'client.js');
-      const normalizedInput = normalizeJsxToTemp(file, tmpDir);
-      const workingDir = path.dirname(file);
+      let page;
       try {
-        await buildForNode(normalizedInput, ssrOut, workingDir);
-        const mod = await import(pathToFileURL(ssrOut).href);
-        const Widget = mod.default || mod.Widget;
-        if (!Widget) throw new Error('No default export');
-        const ssrMarkup = ReactDOMServer.renderToString(React.createElement(Widget));
+        const normalizedInput = normalizeJsxToTemp(file, tmpDir);
+        const workingDir = path.dirname(file);
         await buildForBrowser(normalizedInput, browserOut, workingDir);
-        const html = htmlTemplate({ ssrMarkup, includeTailwindCdn: true });
 
-        const page = await context.newPage();
-        await page.setContent(html, { waitUntil: 'load' });
+        page = await context.newPage();
+        let pageError = null;
+        page.on('pageerror', (e) => { if (!pageError) pageError = e; });
+
+        await page.setContent(htmlShell, { waitUntil: 'load' });
         const clientCode = fs.readFileSync(browserOut, 'utf8');
         await page.addScriptTag({ content: clientCode });
-        await page.evaluate(() => { document.body.style.background = 'transparent'; });
-        await page.waitForSelector('.widget', { state: 'attached', timeout: 10000 });
+
+        const selectorP = page.waitForSelector('.widget', { state: 'attached', timeout: 10000 });
+        selectorP.catch(() => {});
+        await new Promise((resolve, reject) => {
+          let done = false;
+          const finish = (fn) => (v) => { if (done) return; done = true; clearInterval(t); fn(v); };
+          const t = setInterval(() => {
+            if (pageError) finish(reject)(pageError);
+          }, 50);
+          selectorP.then(finish(resolve), finish(reject));
+        });
+
         await page.waitForTimeout(60);
         const widget = await page.$('.widget');
         if (!widget) throw new Error('No .widget');
-        async function measure() { return page.evaluate(el => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; }, widget); }
+        const measure = () => page.evaluate(el => {
+          const r = el.getBoundingClientRect();
+          return { x: r.x, y: r.y, width: r.width, height: r.height };
+        }, widget);
         let box = await measure();
         const start = Date.now();
         while ((box.width === 0 || box.height === 0) && Date.now() - start < 3000) {
           await page.waitForTimeout(50);
           box = await measure();
+        }
+        if (box.width === 0 || box.height === 0) {
+          throw new Error(`Widget rendered at 0x0 (box=${JSON.stringify(box)})`);
         }
         const vw = Math.max(400, Math.ceil(box.x + box.width + 20));
         const vh = Math.max(400, Math.ceil(box.y + box.height + 20));
@@ -197,7 +191,6 @@ async function main() {
         const { dir: d, name } = path.parse(file);
         const outPath = path.join(d, `${name}.png`);
         await widget.screenshot({ path: outPath, omitBackground: true });
-        await page.close();
         const ms = Date.now() - t0;
         const size = `${Math.round(box.width)}x${Math.round(box.height)}`;
         results.push({ file, ok: true, ms, size, outPath });
@@ -212,6 +205,9 @@ async function main() {
         processed++;
         const percent = ((processed / total) * 100).toFixed(1);
         log(`[${processed}/${total}] ${percent}% FAIL`, file, error);
+      } finally {
+        if (page) { try { await page.close(); } catch {} }
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
       }
     }
   }
