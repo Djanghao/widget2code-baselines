@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import base64
 import concurrent.futures as futures
 import datetime as dt
 from zoneinfo import ZoneInfo
@@ -7,6 +8,7 @@ import json
 import os
 import re
 import sys
+import threading
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -18,7 +20,131 @@ try:
 except Exception:
     pass
 
-from provider_hub import LLM, ChatMessage, prepare_image_content
+from openai import OpenAI
+
+
+# ---------------------------------------------------------------------------
+# Model registry: maps model name -> (BASE_URL env var, API_KEY env var)
+# CLI --base-url / --api-key always take precedence over env vars.
+# ---------------------------------------------------------------------------
+MODEL_REGISTRY = {
+    "gpt-4o":                 ("GPT_4O_BASE_URL",          "GPT_4O_API_KEY"),
+    "gpt-5.3":                ("GPT_5_3_BASE_URL",         "GPT_5_3_API_KEY"),
+    "claude-opus-4-5-20251101": ("CLAUDE_OPUS_4_5_BASE_URL", "CLAUDE_OPUS_4_5_API_KEY"),
+    "gemini-3.1-pro-preview": ("GEMINI_3_1_PRO_BASE_URL",  "GEMINI_3_1_PRO_API_KEY"),
+    "gemini-3-pro-preview":   ("GEMINI_3_0_PRO_BASE_URL",  "GEMINI_3_0_PRO_API_KEY"),
+    "doubao-1.8":             ("DOUBAO_1_8_BASE_URL",      "DOUBAO_1_8_API_KEY"),
+    "doubao-seed-1-8-251228": ("DOUBAO_1_8_BASE_URL",      "DOUBAO_1_8_API_KEY"),
+    "qwen3-vl-plus":          ("QWEN3_VL_PLUS_BASE_URL",   "QWEN3_VL_PLUS_API_KEY"),
+    "qwen3.5-plus":           ("QWEN3_5_PLUS_BASE_URL",    "QWEN3_5_PLUS_API_KEY"),
+    "qwen3.6-plus":           ("QWEN3_6_PLUS_BASE_URL",    "QWEN3_6_PLUS_API_KEY"),
+}
+
+
+def resolve_model_config(
+    model: str,
+    api_key_override: Optional[str] = None,
+    base_url_override: Optional[str] = None,
+) -> Tuple[List[str], str]:
+    """Resolve API keys and base URL for *model*.
+
+    API keys may be comma-separated (e.g. ``sk-aaa,sk-bbb``).
+    Priority: CLI flags > model-specific env vars.
+    Raises ValueError if base_url or api_keys cannot be resolved.
+
+    Returns (api_keys_list, base_url).
+    """
+    raw_key = api_key_override
+    base_url = base_url_override
+
+    if model in MODEL_REGISTRY:
+        url_var, key_var = MODEL_REGISTRY[model]
+        if not base_url:
+            base_url = os.getenv(url_var)
+        if not raw_key:
+            raw_key = os.getenv(key_var)
+
+    if not base_url:
+        raise ValueError(
+            f"No base_url for model '{model}'. "
+            f"Pass --base-url or add it to MODEL_REGISTRY / .env."
+        )
+    if not raw_key:
+        raise ValueError(
+            f"No api_key for model '{model}'. "
+            f"Pass --api-key or add it to MODEL_REGISTRY / .env."
+        )
+
+    api_keys = [k.strip() for k in raw_key.split(",") if k.strip()]
+    if not api_keys:
+        raise ValueError(
+            f"No valid api_key for model '{model}' after parsing."
+        )
+
+    return api_keys, base_url
+
+
+# ---------------------------------------------------------------------------
+# Round-robin key rotation with fallback
+# ---------------------------------------------------------------------------
+_rr_counter: dict[str, int] = {}
+_rr_lock = threading.Lock()
+
+
+def _next_key_index(group: str, total: int) -> int:
+    """Return the next round-robin index for *group* (thread-safe)."""
+    with _rr_lock:
+        idx = _rr_counter.get(group, 0)
+        _rr_counter[group] = (idx + 1) % total
+        return idx
+
+
+def chat_completion_with_fallback(
+    api_keys: List[str],
+    base_url: str,
+    model: str,
+    messages: list,
+    temperature: float,
+    top_p: float,
+    max_tokens: int,
+    timeout: int,
+):
+    """Call chat completions, rotating through *api_keys* on failure.
+
+    Uses round-robin to spread load across keys. If a key fails, tries the
+    next one. Raises the last exception only when **all** keys have failed.
+    """
+    n = len(api_keys)
+    start = _next_key_index(base_url, n)
+    last_error: Optional[Exception] = None
+    for i in range(n):
+        key = api_keys[(start + i) % n]
+        try:
+            client = OpenAI(api_key=key, base_url=base_url, timeout=timeout)
+            return client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                top_p=top_p,
+                max_tokens=max_tokens,
+            )
+        except Exception as e:
+            last_error = e
+            continue
+    raise last_error
+
+
+def prepare_image_content(image_path: str) -> dict:
+    """Encode a local image as a base64 data-URL for the OpenAI vision API."""
+    with open(image_path, "rb") as f:
+        data = base64.b64encode(f.read()).decode("utf-8")
+    suffix = Path(image_path).suffix.lower().lstrip(".")
+    if suffix == "jpg":
+        suffix = "jpeg"
+    return {
+        "type": "image_url",
+        "image_url": {"url": f"data:image/{suffix};base64,{data}"},
+    }
 
 
 def list_images(images_dir: Path) -> List[Path]:
@@ -136,11 +262,11 @@ def build_size_constraint_text(image_path: Path, size_flag: bool, aspect_ratio_f
     ratio = width / height
     size_info = {"width": width, "height": height, "aspect_ratio": round(ratio, 2)}
     if size_flag and aspect_ratio_flag:
-        return f"The widget must match the screenshot size ({width}×{height} px) and maintain its aspect ratio (≈{ratio:.2f}:1) as closely as possible.", size_info
+        return f"The widget must match the screenshot size ({width}\u00d7{height} px) and maintain its aspect ratio (\u2248{ratio:.2f}:1) as closely as possible.", size_info
     elif size_flag:
-        return f"The widget must match the screenshot size ({width}×{height} px) as closely as possible.", size_info
+        return f"The widget must match the screenshot size ({width}\u00d7{height} px) as closely as possible.", size_info
     else:
-        return f"The widget must maintain the screenshot's aspect ratio (≈{ratio:.2f}:1) as closely as possible.", size_info
+        return f"The widget must maintain the screenshot's aspect ratio (\u2248{ratio:.2f}:1) as closely as possible.", size_info
 
 def run_one(
     image_path: Path,
@@ -149,14 +275,12 @@ def run_one(
     prompt_text: str,
     out_dir: Path,
     model: str,
-    provider: Optional[str],
-    api_key: Optional[str],
-    base_url: Optional[str],
+    api_keys: List[str],
+    base_url: str,
     temperature: float,
     top_p: float,
     max_tokens: int,
     timeout: int,
-    thinking: Optional[bool],
     size_flag: bool,
     aspect_ratio_flag: bool,
     stop_sequences: Optional[List[str]],
@@ -182,33 +306,33 @@ def run_one(
         meta_data["aspect_ratio"] = size_info["aspect_ratio"]
     meta_out_file.write_text(json.dumps(meta_data, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    llm = LLM(
-        provider=provider,
-        model=model,
-        api_key=api_key,
-        base_url=base_url,
-        temperature=temperature,
-        top_p=top_p,
-        max_tokens=max_tokens,
-        timeout=timeout,
-        thinking=thinking,
-    )
-    img = prepare_image_content(str(image_path))
-    messages = [ChatMessage(role="user", content=[{"type": "text", "text": prompt_text}, img])]
+    img_content = prepare_image_content(str(image_path))
+    messages = [{"role": "user", "content": [{"type": "text", "text": prompt_text}, img_content]}]
+
     try:
-        resp = llm.chat(messages)
+        resp = chat_completion_with_fallback(
+            api_keys, base_url, model, messages,
+            temperature, top_p, max_tokens, timeout,
+        )
     except Exception as e:
         meta_data["response"] = None
         meta_data["error"] = str(e)
         meta_out_file.write_text(json.dumps(meta_data, ensure_ascii=False, indent=2), encoding="utf-8")
         return (prompt_file, None, f"ERROR: {e}")
 
-    from dataclasses import asdict
-    meta_data["response"] = asdict(resp) if hasattr(resp, "__dataclass_fields__") else {"content": str(resp)}
+    content = resp.choices[0].message.content if resp.choices else None
+    meta_data["response"] = {
+        "content": content,
+        "model": resp.model,
+        "usage": {
+            "prompt_tokens": resp.usage.prompt_tokens,
+            "completion_tokens": resp.usage.completion_tokens,
+            "total_tokens": resp.usage.total_tokens,
+        } if resp.usage else None,
+    }
     meta_out_file.write_text(json.dumps(meta_data, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    raw = resp.content if hasattr(resp, "content") else str(resp)
-    code = extract_code(raw) if raw else ""
+    code = extract_code(content) if content else ""
     if stop_sequences and category.startswith("html"):
         code = trim_to_stop(code, stop_sequences)
     ext = decide_extension(code)
@@ -220,21 +344,19 @@ def run_one(
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    p = argparse.ArgumentParser(description="Batch widget2code inference using provider-hub")
+    p = argparse.ArgumentParser(description="Batch widget2code inference (OpenAI-compatible API)")
     p.add_argument("--images-dir", required=True, help="Directory with images")
     p.add_argument("--prompts-root", default=str(Path("prompts").resolve()), help="Prompts root directory (expects .md files)")
     p.add_argument("--results-root", default=str(Path("results").resolve()), help="Results root directory")
     p.add_argument("--experiment", required=True, help="Experiment name suffix")
     p.add_argument("--threads", type=int, default=os.cpu_count() or 4, help="Max concurrent workers")
-    p.add_argument("--model", default="doubao-seed-1-6-250615", help="Model id for provider-hub")
-    p.add_argument("--provider", default=None, help="Provider override (e.g. 'openai_compatible', 'qwen', 'doubao', 'deepseek', 'openai')")
-    p.add_argument("--api-key", dest="api_key", default=None, help="API key for provider (required for 'openai_compatible')")
-    p.add_argument("--base-url", dest="base_url", default=None, help="Base URL for provider (required for 'openai_compatible')")
+    p.add_argument("--model", required=True, help="Model id (must be in MODEL_REGISTRY or provide --base-url/--api-key)")
+    p.add_argument("--api-key", dest="api_key", default=None, help="API key override (falls back to model-specific or OPENAI_API_KEY env var)")
+    p.add_argument("--base-url", dest="base_url", default=None, help="Base URL override (falls back to model-specific or OPENAI_BASE_URL env var)")
     p.add_argument("--temperature", type=float, default=0.2)
     p.add_argument("--top-p", type=float, default=0.9)
     p.add_argument("--max-tokens", type=int, default=1500)
     p.add_argument("--timeout", type=int, default=90)
-    p.add_argument("--thinking", action="store_true", default=None, help="Enable provider thinking when supported")
     p.add_argument("--stop-seq", action="append", default=None, help="Stop sequence(s) for trimming output (HTML only)")
     p.add_argument("--include", nargs="*", help="Optional glob filters relative to prompts root, e.g. 'react/*' 'html/1-*' ")
     p.add_argument("--exclude", nargs="*", help="Optional glob filters to exclude")
@@ -261,6 +383,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("No prompts collected", file=sys.stderr)
         return 2
 
+    api_keys, base_url = resolve_model_config(args.model, args.api_key, args.base_url)
+
     ts = dt.datetime.now(ZoneInfo("America/Toronto")).strftime("%Y%m%d-%H%M%S")
     run_dir_name = f"{ts}-{args.experiment}{('-' + args.suffix) if args.suffix else ''}"
     run_dir = results_root / run_dir_name
@@ -268,14 +392,12 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     meta = {
         "experiment": args.experiment,
-        "provider": args.provider,
-        "base_url": args.base_url,
+        "base_url": base_url,
         "model": args.model,
         "temperature": args.temperature,
         "top_p": args.top_p,
         "max_tokens": args.max_tokens,
         "timeout": args.timeout,
-        "thinking": args.thinking,
         "images_dir": str(images_dir),
         "prompts_root": str(prompts_root),
         "include": args.include,
@@ -288,7 +410,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     (run_dir / "run.meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # Log batch start
-    log_line(run_dir, "BATCH START", f"provider={args.provider} model={args.model} base_url={args.base_url}")
+    log_line(run_dir, "BATCH START", f"model={args.model} base_url={base_url}")
     log_line(run_dir, "BATCH INFO", f"images_dir={images_dir} include={args.include} exclude={args.exclude} size={args.size} aspect_ratio={args.aspect_ratio} threads={args.threads}")
 
     tasks = []
@@ -313,14 +435,12 @@ def main(argv: Optional[List[str]] = None) -> int:
                         prompt_text,
                         out_dir,
                         args.model,
-                        args.provider,
-                        args.api_key,
-                        args.base_url,
+                        api_keys,
+                        base_url,
                         args.temperature,
                         args.top_p,
                         args.max_tokens,
                         args.timeout,
-                        args.thinking,
                         args.size,
                         args.aspect_ratio,
                         args.stop_seq,
