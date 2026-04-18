@@ -21,7 +21,7 @@ python scripts/batch_infer.py \
 | `--images-dir` | Input images directory |
 | `--experiment` | Run name suffix |
 | `--model` | Model id from `MODEL_REGISTRY` |
-| `--include` | Glob under `prompts/`, e.g. `"html-refined/1-minimal.md"` |
+| `--include` | **Single** prompt glob, one run = one prompt category. Use `"<category>/1-minimal.md"` (e.g. `"html-refined-concise/*"`). Do **not** pass multiple globs — each prompt should get its own run dir. |
 | `--threads` | Concurrent workers (typical: 10) |
 | `--size` | Append image size to prompt (optional) |
 | `--aspect-ratio` | Append aspect ratio to prompt (optional) |
@@ -63,21 +63,29 @@ CUDA_VISIBLE_DEVICES=<gpu-id> widget2code-bench \
   --gt_dir <path-to-gt> \
   --pred_dir results/<run-dir> \
   --pred_name "<category>/1-minimal.png" \
-  --cuda --workers 10
+  --cuda --workers 35
 ```
 
 | Flag | Description |
 |---|---|
-| `--gt_dir` | GT directory (flat files with 4-digit IDs) |
+| `--gt_dir` | GT directory: `/shared/zhixiang_team/widget_research/Comparison/GT` |
 | `--pred_dir` | Prediction directory (subfolders with 4-digit IDs) |
 | `--pred_name` | Prediction filename inside each subfolder |
 | `--cuda` | Enable GPU |
-| `--workers` | Parallel threads (typical: 10) |
+| `--workers` | Parallel threads (recommended: 35, single eval per GPU) |
 
-### Concurrency (80GB GPU)
+### Concurrency (80GB H100)
 
-- `--workers 10` → 2–3 concurrent evals per GPU (recommended)
-- `--workers 20` → 2 concurrent evals per GPU
+Measured peak memory on 80GB H100 (single eval per GPU):
+
+| workers | peak mem | usage |
+|---|---|---|
+| 20 | ~40 GB | ~50% |
+| 32 | ~55 GB | ~68% |
+| 35 | ~60 GB | ~74% (recommended) |
+| 40 | ~66 GB | ~81% (no safety margin) |
+
+**Recommended: `--workers 35`, one eval per GPU.**
 
 ### Output
 
