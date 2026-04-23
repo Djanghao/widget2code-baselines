@@ -25,6 +25,7 @@ from openai import OpenAI
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from color_extract import build_palette_text
 from bench_color_extract import build_bench_palette_text
+from ocr_extract import build_ocr_text
 
 
 # ---------------------------------------------------------------------------
@@ -289,6 +290,7 @@ def run_one(
     inject_colors: bool = False,
     color_k: int = 10,
     inject_bench_colors: bool = False,
+    inject_ocr: bool = False,
 ) -> Tuple[Path, Optional[str], Optional[str]]:
     constraint_text, size_info = build_size_constraint_text(image_path, size_flag, aspect_ratio_flag)
     if constraint_text:
@@ -322,6 +324,21 @@ def run_one(
                 + palette_text
             )
 
+    ocr_text = ""
+    if inject_ocr:
+        try:
+            ocr_text = build_ocr_text(image_path)
+        except Exception:
+            ocr_text = ""
+        if "[OCR_TEXT]" in prompt_text:
+            prompt_text = prompt_text.replace("[OCR_TEXT]", ocr_text or "(no text detected)")
+        elif ocr_text:
+            prompt_text = (
+                prompt_text
+                + "\n\n### OCR Text (from the target image, copy verbatim)\n"
+                + ocr_text
+            )
+
     out_cat = out_dir / category
     out_cat.mkdir(parents=True, exist_ok=True)
     base_name = prompt_file.stem
@@ -341,6 +358,9 @@ def run_one(
         meta_data["inject_colors"] = True
         meta_data["color_k"] = color_k
         meta_data["palette"] = palette_text
+    if inject_ocr:
+        meta_data["inject_ocr"] = True
+        meta_data["ocr_text"] = ocr_text
     meta_out_file.write_text(json.dumps(meta_data, ensure_ascii=False, indent=2), encoding="utf-8")
 
     img_content = prepare_image_content(str(image_path))
@@ -402,6 +422,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--aspect-ratio", action="store_true", help="Append aspect ratio constraint to prompt")
     p.add_argument("--inject-colors", action="store_true", help="Extract k-means color palette from image and inject into prompt")
     p.add_argument("--inject-bench-colors", action="store_true", help="Inject bench-style color info (polarity + saturation profile + hue spread + k-means hex) into prompt")
+    p.add_argument("--inject-ocr", action="store_true", help="Run easyocr on image and inject detected text + bbox + estimated size into prompt")
     p.add_argument("--color-k", type=int, default=10, help="Number of k-means color clusters (default 10)")
     args = p.parse_args(argv)
 
@@ -489,6 +510,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         args.inject_colors,
                         args.color_k,
                         args.inject_bench_colors,
+                        args.inject_ocr,
                     )
                 )
 
