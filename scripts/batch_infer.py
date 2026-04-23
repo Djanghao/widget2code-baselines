@@ -22,6 +22,10 @@ except Exception:
 
 from openai import OpenAI
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from color_extract import build_palette_text
+from bench_color_extract import build_bench_palette_text
+
 
 # ---------------------------------------------------------------------------
 # Model registry: maps model name -> (BASE_URL env var, API_KEY env var)
@@ -282,10 +286,41 @@ def run_one(
     size_flag: bool,
     aspect_ratio_flag: bool,
     stop_sequences: Optional[List[str]],
+    inject_colors: bool = False,
+    color_k: int = 10,
+    inject_bench_colors: bool = False,
 ) -> Tuple[Path, Optional[str], Optional[str]]:
     constraint_text, size_info = build_size_constraint_text(image_path, size_flag, aspect_ratio_flag)
     if constraint_text:
         prompt_text = prompt_text + "\n" + constraint_text
+
+    palette_text = ""
+    if inject_bench_colors:
+        try:
+            palette_text = build_bench_palette_text(image_path, k=color_k)
+        except Exception:
+            palette_text = ""
+        if "[COLOR_PALETTE]" in prompt_text:
+            prompt_text = prompt_text.replace("[COLOR_PALETTE]", palette_text or "(no palette available)")
+        elif palette_text:
+            prompt_text = (
+                prompt_text
+                + "\n\n### Color Palette (bench-style, from eval's HSV analysis)\n"
+                + palette_text
+            )
+    elif inject_colors:
+        try:
+            palette_text = build_palette_text(image_path, k=color_k)
+        except Exception:
+            palette_text = ""
+        if "[COLOR_PALETTE]" in prompt_text:
+            prompt_text = prompt_text.replace("[COLOR_PALETTE]", palette_text or "(no palette available)")
+        elif palette_text:
+            prompt_text = (
+                prompt_text
+                + "\n\n### Color Palette (from the target image, sorted by pixel coverage)\n"
+                + palette_text
+            )
 
     out_cat = out_dir / category
     out_cat.mkdir(parents=True, exist_ok=True)
@@ -302,6 +337,10 @@ def run_one(
     if size_info:
         meta_data["image_size"] = {"width": size_info["width"], "height": size_info["height"]}
         meta_data["aspect_ratio"] = size_info["aspect_ratio"]
+    if inject_colors:
+        meta_data["inject_colors"] = True
+        meta_data["color_k"] = color_k
+        meta_data["palette"] = palette_text
     meta_out_file.write_text(json.dumps(meta_data, ensure_ascii=False, indent=2), encoding="utf-8")
 
     img_content = prepare_image_content(str(image_path))
@@ -361,6 +400,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--suffix", default="", help="Optional extra suffix for run directory name")
     p.add_argument("--size", action="store_true", help="Append image size constraint to prompt")
     p.add_argument("--aspect-ratio", action="store_true", help="Append aspect ratio constraint to prompt")
+    p.add_argument("--inject-colors", action="store_true", help="Extract k-means color palette from image and inject into prompt")
+    p.add_argument("--inject-bench-colors", action="store_true", help="Inject bench-style color info (polarity + saturation profile + hue spread + k-means hex) into prompt")
+    p.add_argument("--color-k", type=int, default=10, help="Number of k-means color clusters (default 10)")
     args = p.parse_args(argv)
 
     images_dir = Path(args.images_dir)
@@ -402,6 +444,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         "exclude": args.exclude,
         "size": args.size,
         "aspect_ratio": args.aspect_ratio,
+        "inject_colors": args.inject_colors,
+        "color_k": args.color_k,
         "stop_sequences": args.stop_seq,
         "created_at": ts,
     }
@@ -409,7 +453,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # Log batch start
     log_line(run_dir, "BATCH START", f"model={args.model} base_url={base_url}")
-    log_line(run_dir, "BATCH INFO", f"images_dir={images_dir} include={args.include} exclude={args.exclude} size={args.size} aspect_ratio={args.aspect_ratio} threads={args.threads}")
+    log_line(run_dir, "BATCH INFO", f"images_dir={images_dir} include={args.include} exclude={args.exclude} size={args.size} aspect_ratio={args.aspect_ratio} inject_colors={args.inject_colors} color_k={args.color_k} threads={args.threads}")
 
     tasks = []
     with futures.ThreadPoolExecutor(max_workers=args.threads) as pool:
@@ -442,6 +486,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                         args.size,
                         args.aspect_ratio,
                         args.stop_seq,
+                        args.inject_colors,
+                        args.color_k,
+                        args.inject_bench_colors,
                     )
                 )
 
