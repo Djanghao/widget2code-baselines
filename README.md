@@ -27,7 +27,7 @@ python scripts/batch_infer.py \
 - `--model <name>`: Model ID (default: doubao-seed-1-6-250615)
 - `--temperature <float>`: Temperature (default: 0.2)
 - `--top-p <float>`: Top-p (default: 0.9)
-- `--max-tokens <int>`: Max tokens (default: 1500)
+- `--max-tokens <int>`: Max tokens (default: 8000)
 - `--timeout <int>`: Timeout in seconds (default: 90)
 - `--thinking`: Enable provider thinking
 - `--include <pattern>`: Filter prompts (e.g., "html/*")

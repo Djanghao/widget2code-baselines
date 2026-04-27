@@ -412,7 +412,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--base-url", dest="base_url", default=None, help="Base URL override (falls back to model-specific or OPENAI_BASE_URL env var)")
     p.add_argument("--temperature", type=float, default=0.2)
     p.add_argument("--top-p", type=float, default=0.9)
-    p.add_argument("--max-tokens", type=int, default=4000)
+    p.add_argument("--max-tokens", type=int, default=8000)
     p.add_argument("--timeout", type=int, default=90)
     p.add_argument("--stop-seq", action="append", default=None, help="Stop sequence(s) for trimming output (HTML only)")
     p.add_argument("--include", nargs="*", help="Optional glob filters relative to prompts root, e.g. 'react/*' 'html/1-*' ")
